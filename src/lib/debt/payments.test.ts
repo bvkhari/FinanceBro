@@ -10,6 +10,7 @@ import {
   filterPayments,
   totalDue,
   totalPaid,
+  extraPaymentScenario,
 } from "./payments";
 
 const TODAY = "2026-10-10";
@@ -189,5 +190,36 @@ describe("debtOverview", () => {
   it("handles no debts", () => {
     const empty = debtOverview([], [], 50, TODAY);
     expect(empty).toMatchObject({ totalOutstanding: 0, activeDebts: 0, dueThisMonth: 0, nextPayment: undefined, availableAfterCommitments: 50 });
+  });
+});
+
+describe("extraPaymentScenario", () => {
+  // RM400 left as 4 × RM100, Nov–Feb
+  const loan = debt("x", "Loan", 400, [
+    inst("x1", "2026-11-10", 100), inst("x2", "2026-12-10", 100), inst("x3", "2027-01-10", 100), inst("x4", "2027-02-10", 100),
+  ]);
+
+  it("clears the last instalments first and never invents interest", () => {
+    const s = extraPaymentScenario(loan, 200, TODAY);
+    expect(s).toMatchObject({
+      extra: 200, outstandingAfter: 200, instalmentsBefore: 4, instalmentsAfter: 2,
+      payoffBefore: "2027-02-10", payoffAfter: "2026-12-10", interestSavedEstimate: undefined,
+    });
+  });
+
+  it("a partial cover shortens nothing but still lowers the balance", () => {
+    expect(extraPaymentScenario(loan, 50, TODAY)).toMatchObject({ outstandingAfter: 350, instalmentsAfter: 4, payoffAfter: "2027-02-10" });
+  });
+
+  it("estimates interest saved only from a known rate", () => {
+    const withRate = { ...loan, interestRate: 12 };
+    // Each RM100 paid today instead of on its due date (Feb 10 and Jan 10) saves 12% p.a. for those days
+    const s = extraPaymentScenario(withRate, 200, TODAY);
+    const expected = (100 * 0.12 * daysBetween(TODAY, "2027-02-10")) / 365 + (100 * 0.12 * daysBetween(TODAY, "2027-01-10")) / 365;
+    expect(s.interestSavedEstimate).toBe(Math.round(expected * 100) / 100);
+  });
+
+  it("caps the extra at what is owed", () => {
+    expect(extraPaymentScenario(loan, 999, TODAY)).toMatchObject({ extra: 400, outstandingAfter: 0, instalmentsAfter: 0, payoffAfter: undefined });
   });
 });

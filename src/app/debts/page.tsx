@@ -31,7 +31,7 @@ import { useDebtView } from "@/lib/debt/useDebtView";
 import { EditInstalmentModal, ExtendScheduleModal, RescheduleModal } from "@/components/debt/ScheduleModals";
 import { ScheduleDraft, ScheduleEditor, draftRepayment, emptyDraft, previewSchedule } from "@/components/debt/ScheduleEditor";
 import { spendingCategories } from "@/lib/categories";
-import { PAYMENT_FILTERS, PaymentFilter, countdown, filterPayments, totalDue, totalPaid } from "@/lib/debt/payments";
+import { PAYMENT_FILTERS, PaymentFilter, countdown, extraPaymentScenario, filterPayments, totalDue, totalPaid } from "@/lib/debt/payments";
 import { toCents } from "@/lib/debt/schedule";
 
 type View = "active" | "paid_off" | "all";
@@ -43,6 +43,7 @@ export default function DebtsPage() {
   const [tab, setTab] = useState<Tab>("payments");
   const [filter, setFilter] = useState<PaymentFilter>("all");
   const [view, setView] = useState<View>("active");
+  const [sort, setSort] = useState<"due" | "interest">("due");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Debt | null>(null);
@@ -72,7 +73,14 @@ export default function DebtsPage() {
     setExpanded(null);
   }, [mode, combined]);
 
-  const visible = useMemo(() => debts.filter((d) => view === "all" || d.status === view), [debts, view]);
+  const visible = useMemo(() => {
+    const list = debts.filter((d) => view === "all" || d.status === view);
+    const due = (d: Debt) => d.nextInstalment?.dueDate ?? "9999";
+    // Highest known rate first; unknown rates go last, so nothing is guessed.
+    return list.sort((a, b) =>
+      sort === "interest" ? (b.interestRate ?? -1) - (a.interestRate ?? -1) || due(a).localeCompare(due(b)) : due(a).localeCompare(due(b))
+    );
+  }, [debts, view, sort]);
   const shown = useMemo(() => filterPayments(payments, filter, today), [payments, filter, today]);
   const unpaidCount = shown.filter((p) => p.remaining > 0).length;
 
@@ -175,10 +183,11 @@ export default function DebtsPage() {
         </section>
       ) : (
         <section aria-label="Debts">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:justify-between">
           <Segmented
             aria-label="Filter debts"
             size="sm"
-            className="mb-4 w-full sm:max-w-[20rem]"
+            className="w-full sm:max-w-[20rem]"
             value={view}
             onChange={setView}
             options={(["active", "paid_off", "all"] as View[]).map((v) => ({
@@ -188,6 +197,18 @@ export default function DebtsPage() {
               }`,
             }))}
           />
+          <Segmented
+            aria-label="Sort debts"
+            size="sm"
+            className="w-full sm:w-64"
+            value={sort}
+            onChange={setSort}
+            options={[
+              { value: "due", label: "Next due" },
+              { value: "interest", label: "Highest interest" },
+            ]}
+          />
+          </div>
 
           {visible.length === 0 ? (
             <div className="rounded-2xl bg-surface px-6 py-14 text-center shadow-card">
@@ -416,7 +437,62 @@ function DebtCard({
               </tbody>
             </table>
           </div>
+          {active && debt.outstandingBalance > 0 && <ExtraPayment debt={debt} />}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// "What if I pay extra?" — a comparison only, nothing is paid
+// ------------------------------------------------------------
+
+function ExtraPayment({ debt }: { debt: Debt }) {
+  const { mode, cashFlow } = useFinance();
+  const [extra, setExtra] = useState<number | null>(null);
+  const s = extra ? extraPaymentScenario(debt, extra, todayISO()) : null;
+  // Projected cash is known for the active profile only.
+  const cashAfter = s && debt.mode === mode ? (Math.round(cashFlow.projectedCash * 100) - Math.round(s.extra * 100)) / 100 : undefined;
+
+  return (
+    <div className="mt-3 rounded-xl bg-gray/7 px-3 py-2.5 text-footnote">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-label-2">What if you pay extra now?</span>
+        {[100, 200].map((n) => (
+          <button
+            key={n}
+            onClick={() => setExtra(extra === n ? null : n)}
+            aria-pressed={extra === n}
+            className={`press rounded-full px-3 py-1 font-medium ${extra === n ? "bg-accent text-white" : "bg-gray/12 text-label"}`}
+          >
+            +{formatRM(n, { decimals: 0 })}
+          </button>
+        ))}
+      </div>
+      {s && (
+        <ul className="mt-2 space-y-0.5 text-label">
+          <li>
+            Owed drops to <span className="tabular font-semibold">{formatRM(s.outstandingAfter)}</span>.
+            {s.instalmentsBefore > 1 && " Your next payments stay the same."}
+          </li>
+          <li>
+            {s.instalmentsAfter < s.instalmentsBefore
+              ? `Finish ${s.instalmentsBefore - s.instalmentsAfter} instalment${s.instalmentsBefore - s.instalmentsAfter === 1 ? "" : "s"} sooner: last payment ${s.payoffAfter ? formatDate(s.payoffAfter) : "none left"} instead of ${formatDate(s.payoffBefore!)}.`
+              : `Not enough to clear a whole instalment; the last one (${formatDate(s.payoffBefore!)}) gets smaller.`}
+          </li>
+          <li className="text-label-2">
+            {s.interestSavedEstimate !== undefined
+              ? `About ${formatRM(s.interestSavedEstimate)} less interest (estimate at ${debt.interestRate}% p.a. on the amount paid early).`
+              : "No interest rate on record, so no interest saving is shown."}
+          </li>
+          {cashAfter !== undefined && (
+            <li className={cashAfter < 0 ? "font-medium text-negative" : "text-label-2"}>
+              Projected cash on {formatDate(cashFlow.monthEnd)} would be {formatRM(cashAfter)}
+              {cashAfter < 0 ? ", so you can't afford it this month." : "."}
+            </li>
+          )}
+        </ul>
       )}
     </div>
   );

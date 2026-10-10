@@ -206,3 +206,43 @@ export function debtOverview(debts: Debt[], payments: PaymentItem[], balance: nu
     monthEnd,
   };
 }
+
+export interface ExtraPaymentScenario {
+  extra: number;
+  outstandingAfter: number;
+  instalmentsBefore: number;
+  instalmentsAfter: number;
+  payoffBefore?: string; // last due date today
+  payoffAfter?: string; // last due date after paying extra now
+  /** Only when the debt's interest rate is known: simple interest on each ringgit paid early, until its original due date. */
+  interestSavedEstimate?: number;
+}
+
+/**
+ * What paying `extra` now would do, assuming it clears the last instalments
+ * first (the term gets shorter; the next payments stay the same).
+ * Never invents savings: no interest rate, no interest figure.
+ */
+export function extraPaymentScenario(debt: Debt, extra: number, today: string): ExtraPaymentScenario {
+  const unpaid = debt.instalments.filter((i) => i.remaining > 0);
+  let left = Math.min(cents(extra), cents(debt.outstandingBalance));
+  const rate = debt.interestRate;
+  let interest = 0;
+  let after = unpaid.length;
+  for (let k = unpaid.length - 1; k >= 0 && left > 0; k--) {
+    const covered = Math.min(left, cents(unpaid[k].remaining));
+    if (rate !== undefined) interest += (covered * rate * Math.max(0, daysBetween(today, unpaid[k].dueDate))) / 100 / 365;
+    left -= covered;
+    if (covered === cents(unpaid[k].remaining)) after = k;
+  }
+  const applied = Math.min(cents(extra), cents(debt.outstandingBalance));
+  return {
+    extra: applied / 100,
+    outstandingAfter: (cents(debt.outstandingBalance) - applied) / 100,
+    instalmentsBefore: unpaid.length,
+    instalmentsAfter: after,
+    payoffBefore: unpaid.at(-1)?.dueDate,
+    payoffAfter: after > 0 ? unpaid[after - 1].dueDate : undefined,
+    interestSavedEstimate: rate === undefined ? undefined : Math.round(interest) / 100,
+  };
+}

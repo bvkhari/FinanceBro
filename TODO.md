@@ -151,20 +151,25 @@ Keputusan reka bentuk:
   - [x] Label jelas "in-app" sahaja (tiada notifikasi luar yang dihantar)
   - Diuji dalam browser (10 Okt): Personal 3 peringatan (sewa esok, SPayLater 12 Okt, CelcomDigi 13 Okt; headphones 14 Okt tak masuk sebab 4 hari). Business: Unifi "overdue by 3 days", Kopi Bumi dan Farm Fresh (Supplier invoice)
 
-## Fasa 4: Bonus
+## Fasa 4: Bonus 🔄 *sedang dibuat*
 
-- [ ] **12. Prioritisation dan affordability**
-  - [ ] Paling cepat due, overdue, kadar faedah tertinggi (jika diketahui), bayaran minimum
-  - [ ] Baki tunai dianggarkan selepas bayaran berjadual
-  - [ ] Senario bayar lebih RM100/RM200 (guna kadar sebenar, tak reka savings)
+Pendekatan: bina yang paling sikit. Banyak item dah ada dari fasa lepas.
+
+- [x] **12. Prioritisation dan affordability**
+  - [x] Paling cepat due dan overdue *(Fasa 2: tab Payments disusun ikut tarikh, ada filter Overdue)*
+  - [x] Bayaran minimum *(amaun setiap instalment dah dipapar pada setiap hutang)*
+  - [x] Baki tunai selepas bayaran berjadual *(Fasa 3: kad Cash flow dan Debt Dashboard)*
+  - [x] Susun hutang ikut kadar faedah tertinggi (yang tak diketahui di bawah)
+  - [x] Senario bayar extra RM100/RM200: habis berapa instalment lebih awal, faedah dijimat **hanya** bila kadar diketahui (anggaran, ditulis), dan mampu ke tidak ikut unjuran tunai. Tiada butang bayar
+  - Diuji dalam browser: SPayLater phone +RM200 → baki RM159.60, habis 2 instalment awal (12 Nov, bukan 12 Jan), tiada angka faedah, unjuran tunai RM242.40. Kad Maybank 15% di atas bila susun ikut faedah, +RM200 → anggaran RM0.66
 - [ ] **13. Report dan export**
-  - [ ] Hutang ikut provider, ikut kategori
-  - [ ] Bayaran dibuat dalam tempoh dipilih
-  - [ ] Upcoming, overdue, baki komitmen
-  - [ ] Sejarah perubahan baki hutang
-  - [ ] Export CSV/Excel
-- [ ] **14. Debt Agent** *(separuh: chat sekarang guna keyword matching, belum ada soalan hutang)*
-  - [ ] Tool kira nombor (code kira, LLM tak reka nombor)
-  - [ ] Jawab soalan: berapa hutang, hutang Shopee, siapa kena bayar minggu ni, due esok, bayaran bulan ni, overdue, baki selepas bulan ni, mampu bayar extra RM200, hutang supplier business
-  - [ ] Tanya user bila maklumat tak cukup
-  - [ ] Terangkan cara kiraan
+  - [ ] Ringkasan outstanding ikut kategori (provider = senarai hutang sedia ada)
+  - [ ] Export CSV bayaran ikut filter semasa (tempoh, upcoming, overdue, paid) dan export CSV hutang (Blob browser, tiada library)
+  - Ditangguh: carta sejarah baki hutang. Data dah ada dalam `debt_payments`; bina bila diminta
+- [ ] **14. Debt Agent** (chat `/financebro-ai`)
+  - [ ] Function tulen `answerDebtQuestion()`: semua nombor dari function sedia ada (`payments.ts`, `cashflow.ts`), bukan LLM
+  - [ ] Jawab 9 soalan contoh spec, termasuk hutang supplier business (guna data dua profile)
+  - [ ] Tanya balik bila provider tak dijumpai atau jumlah extra tiada
+  - [ ] Setiap jawapan ada baris "Cara kira"
+  - [ ] Unit test untuk setiap soalan
+  - Ditangguh: LLM sebenar. Perlu API key dan route `/api/chat`; function yang sama boleh jadi tool LLM nanti

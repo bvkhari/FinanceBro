@@ -110,7 +110,7 @@ Nota dari test Fasa 2:
 - Pilihan Combined disimpan dalam browser (macam pilihan profile), jadi kekal lepas reload. Diuji: Combined → reload kekal Combined, Personal → reload kekal Personal
 - Dashboard tab Expenses masih kira bayaran hutang sebagai expense (step 9)
 
-## Fasa 3: Logik duit 🔄 *sedang dibuat*
+## Fasa 3: Logik duit ✅ *siap 2026-10-10*
 
 Keputusan reka bentuk:
 - Pembelian secara hutang (BNPL, invois supplier) direkod sebagai **expense tanpa kesan tunai** (`cash_effect = false`) dan dipautkan ke hutang tu. Ia dikira dalam expense bulanan, tapi tak kurangkan baki tunai
@@ -136,14 +136,16 @@ Keputusan reka bentuk:
   - [x] Unit test untuk semua formula, dan integration test untuk trigger baki
   - Diuji dalam browser (Personal, 10 Okt): bayar instalment RM89.90 → Spent kekal RM245.52, tunai RM720 → RM630.10, projected kekal RM442.40. Tambah BNPL RM120 dengan pembelian → Spent RM365.52, tunai kekal RM630.10. Chat tunjuk angka sama dengan Debt Dashboard
   - Seed: 8 hutang dipautkan ke pembelian on-credit (invois supplier, BNPL, statement kad). Expense September Kopi Senja jadi RM29,443 (lebih dari revenue) sebab pembelian on-credit dikira masa beli
-- [ ] **10. Edit instalment akan datang** tanpa ubah yang dah bayar
-  - [ ] Edit tarikh dan amaun instalment yang belum dibayar
-  - [ ] Instalment partial: amaun tak boleh kurang dari yang dah dibayar
-  - [ ] Instalment yang dah paid dan cancelled dikunci
-  - [ ] Batalkan instalment yang belum ada bayaran
-  - [ ] Tambah instalment / sambung jadual bila ada baki belum dijadualkan (guna `planScheduleExtension`)
-  - [ ] Jadual semula baki (tukar frequency dan amaun) tanpa sentuh sejarah bayaran
-  - [ ] Semua perubahan melalui function SQL, dengan integration test
+- [x] **10. Edit instalment akan datang** tanpa ubah yang dah bayar
+  - [x] Edit tarikh dan amaun instalment yang belum dibayar
+  - [x] Instalment partial: amaun tak boleh kurang dari yang dah dibayar
+  - [x] Instalment yang dah paid dan cancelled dikunci
+  - [x] Batalkan instalment yang belum ada bayaran
+  - [x] Tambah instalment / sambung jadual bila ada baki belum dijadualkan (guna `planScheduleExtension`)
+  - [x] Jadual semula baki (tukar frequency dan amaun) tanpa sentuh sejarah bayaran
+  - [x] Semua perubahan melalui function SQL, dengan integration test
+  - Diuji dalam browser: Shopee PayLater dijadual semula ke setiap dua minggu RM75 (4 bayaran, 20 Okt–1 Dis), instalment 17 Nov dibatalkan (amaran RM75 keluar), Add instalments tambah 15 Dis (amaran hilang). Baris yang dah paid dikunci
+  - 5 integration test baru: edit, partial, batal, reschedule, dan reschedule yang bertembung dengan tarikh paid (tiada apa-apa berubah)
 - [x] **11. In-app reminder** untuk bayaran yang dah dekat
   - [x] Notifikasi untuk instalment hutang overdue dan due dalam 3 hari
   - [x] Label jelas "in-app" sahaja (tiada notifikasi luar yang dihantar)

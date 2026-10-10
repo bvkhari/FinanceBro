@@ -433,6 +433,33 @@ export async function recordDebtPayment(p: {
   ) as PaymentResult;
 }
 
+// ---------- schedule edits (paid history is never touched; the SQL functions enforce it) ----------
+
+export async function updateInstalment(instalmentId: string, dueDate: string, amount: number) {
+  check(await supabase.rpc("update_debt_instalment", { p_instalment_id: instalmentId, p_due_date: dueDate, p_amount: amount }));
+}
+
+export async function cancelInstalment(instalmentId: string) {
+  check(await supabase.rpc("cancel_debt_instalment", { p_instalment_id: instalmentId }));
+}
+
+/** Adds instalments; due dates that already exist are skipped. Returns how many were added. */
+export async function addInstalments(debtId: string, schedule: ScheduledInstalment[]) {
+  return check(await supabase.rpc("add_debt_instalments", { p_debt_id: debtId, p_instalments: schedule })) as number;
+}
+
+/** Replaces every instalment with no payments by a new schedule. Returns how many were created. */
+export async function rescheduleDebt(debtId: string, frequency: DebtFrequency, repaymentAmount: number | undefined, schedule: ScheduledInstalment[]) {
+  return check(
+    await supabase.rpc("reschedule_debt", {
+      p_debt_id: debtId,
+      p_frequency: frequency,
+      p_repayment_amount: repaymentAmount ?? null,
+      p_instalments: schedule,
+    })
+  ) as number;
+}
+
 /** Calls `onChange` whenever any row for this profile changes (agent writes, other tabs). */
 export function subscribeToProfile(profileId: string, onChange: () => void) {
   const filter = `profile_id=eq.${profileId}`;

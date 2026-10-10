@@ -259,6 +259,98 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
     expect(await balance()).toBe(before);
   });
 
+  describe("editing the schedule", () => {
+    const rpc = (fn: string, args: Record<string, unknown>) => db.rpc(fn, args);
+
+    it("edits an unpaid instalment but never a paid one", async () => {
+      const id = await createDebt(
+        { name: "Edit test", debt_type: "bnpl", original_amount: 300, repayment_amount: 100, frequency: "monthly" },
+        generateSchedule({ amount: 300, instalmentAmount: 100, frequency: "monthly", firstDueDate: "2026-10-01" })
+      );
+      const [oct, nov, dec] = await instalments(id);
+      await pay(oct.id, 100);
+
+      expect((await rpc("update_debt_instalment", { p_instalment_id: nov.id, p_due_date: "2026-11-20", p_amount: 150 })).error).toBeNull();
+      const after = await instalments(id);
+      expect(after.map((i) => [i.due_date, i.amount, i.status])).toEqual([
+        ["2026-10-01", 100, "paid"],
+        ["2026-11-20", 150, "scheduled"],
+        ["2026-12-01", 100, "scheduled"],
+      ]);
+
+      const paidEdit = await rpc("update_debt_instalment", { p_instalment_id: oct.id, p_due_date: "2026-10-05", p_amount: 50 });
+      expect(paidEdit.error?.message).toMatch(/paid instalment can't be changed/);
+      const clash = await rpc("update_debt_instalment", { p_instalment_id: dec.id, p_due_date: "2026-11-20", p_amount: 100 });
+      expect(clash.error?.message).toMatch(/already due on 2026-11-20/);
+      expect((await instalments(id))[0]).toMatchObject({ due_date: "2026-10-01", amount: 100, status: "paid" });
+    });
+
+    it("never lowers a partly paid instalment below what was paid", async () => {
+      const id = await createDebt(
+        { name: "Partial edit", debt_type: "bnpl", original_amount: 100, frequency: "one_time" },
+        [{ due_date: "2026-10-02", amount: 100 }]
+      );
+      const [inst] = await instalments(id);
+      await pay(inst.id, 40);
+      const tooLow = await rpc("update_debt_instalment", { p_instalment_id: inst.id, p_due_date: "2026-10-02", p_amount: 30 });
+      expect(tooLow.error?.message).toMatch(/less than the RM40.00 already paid/);
+      expect((await rpc("cancel_debt_instalment", { p_instalment_id: inst.id })).error?.message).toMatch(/already has RM40.00 paid/);
+      // Lowering it to exactly what was paid settles it
+      await rpc("update_debt_instalment", { p_instalment_id: inst.id, p_due_date: "2026-10-02", p_amount: 40 });
+      expect((await instalments(id))[0]).toMatchObject({ amount: 40, amount_paid: 40, status: "paid" });
+    });
+
+    it("cancels an unpaid instalment and keeps it as history", async () => {
+      const id = await createDebt(
+        { name: "Cancel test", debt_type: "family_friend", original_amount: 200, frequency: "irregular" },
+        [{ due_date: "2026-10-25", amount: 80 }, { due_date: "2026-11-25", amount: 120 }]
+      );
+      const [first] = await instalments(id);
+      expect((await rpc("cancel_debt_instalment", { p_instalment_id: first.id })).error).toBeNull();
+      expect((await instalments(id)).map((i) => i.status)).toEqual(["cancelled", "scheduled"]);
+      expect((await debt(id)).outstanding_balance).toBe(200); // cancelling a payment doesn't change what is owed
+      expect((await rpc("cancel_debt_instalment", { p_instalment_id: first.id })).error?.message).toMatch(/already cancelled/);
+    });
+
+    it("reschedules what's left without touching paid or partly paid instalments", async () => {
+      const id = await createDebt(
+        { name: "Reschedule", debt_type: "personal_loan", original_amount: 400, repayment_amount: 100, frequency: "monthly" },
+        generateSchedule({ amount: 400, instalmentAmount: 100, frequency: "monthly", firstDueDate: "2026-09-01" })
+      );
+      const [sep, oct] = await instalments(id);
+      await pay(sep.id, 100, randomUUID(), 0, "2026-09-01");
+      await pay(oct.id, 30, randomUUID(), 0, "2026-10-01"); // RM70 still due on October
+      // Owed: 400 − 100 − 30 = 270. October keeps its RM70, so the new schedule covers RM200, every two weeks at RM100
+      const fresh = generateSchedule({ amount: 200, instalmentAmount: 100, frequency: "biweekly", firstDueDate: "2026-11-02" });
+      const r = await rpc("reschedule_debt", { p_debt_id: id, p_frequency: "biweekly", p_repayment_amount: 100, p_instalments: fresh });
+      expect(r.error).toBeNull();
+      expect(r.data).toBe(2);
+      expect((await instalments(id)).map((i) => [i.due_date, i.amount, i.amount_paid, i.status])).toEqual([
+        ["2026-09-01", 100, 100, "paid"],
+        ["2026-10-01", 100, 30, "partial"],
+        ["2026-11-02", 100, 0, "scheduled"],
+        ["2026-11-16", 100, 0, "scheduled"],
+      ]);
+      expect(await debt(id)).toMatchObject({ frequency: "biweekly", repayment_amount: 100, outstanding_balance: 270 });
+    });
+
+    it("refuses a new schedule that lands on a paid date, and changes nothing", async () => {
+      const id = await createDebt(
+        { name: "Clash", debt_type: "personal_loan", original_amount: 200, repayment_amount: 100, frequency: "monthly" },
+        generateSchedule({ amount: 200, instalmentAmount: 100, frequency: "monthly", firstDueDate: "2026-09-01" })
+      );
+      const [sep] = await instalments(id);
+      await pay(sep.id, 100, randomUUID(), 0, "2026-09-01");
+      const before = await instalments(id);
+      const r = await rpc("reschedule_debt", {
+        p_debt_id: id, p_frequency: "one_time", p_repayment_amount: null, p_instalments: [{ due_date: "2026-09-01", amount: 100 }],
+      });
+      expect(r.error?.message).toMatch(/already paid or cancelled is due on 2026-09-01/);
+      expect(await instalments(id)).toEqual(before);
+      expect((await debt(id)).frequency).toBe("monthly");
+    });
+  });
+
   it("keeps personal and business debt types on the right profile", async () => {
     await expect(
       createDebt({ name: "Wrong place", debt_type: "supplier_invoice", original_amount: 10, frequency: "one_time" }, [

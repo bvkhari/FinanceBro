@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   Info,
   Pencil,
   Plus,
-  Trash2,
 } from "lucide-react";
 import { useFinance } from "@/lib/FinanceContext";
 import { Button } from "@/components/ui/Button";
@@ -17,7 +17,7 @@ import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { formatDate, formatRM, todayISO } from "@/lib/utils";
-import { Debt, DebtFrequency, DebtInstalment, DebtType } from "@/lib/types";
+import { Debt, DebtInstalment, DebtType } from "@/lib/types";
 import {
   DEBT_TYPE_LABELS,
   FREQUENCY_LABELS,
@@ -28,14 +28,11 @@ import { PaymentModal, PaymentTarget } from "@/components/debt/PaymentModal";
 import { PaymentRows } from "@/components/debt/PaymentRows";
 import { DebtScopeControl, ProfileTag } from "@/components/debt/DebtScopeControl";
 import { useDebtView } from "@/lib/debt/useDebtView";
+import { EditInstalmentModal, ExtendScheduleModal, RescheduleModal } from "@/components/debt/ScheduleModals";
+import { ScheduleDraft, ScheduleEditor, draftRepayment, emptyDraft, previewSchedule } from "@/components/debt/ScheduleEditor";
 import { spendingCategories } from "@/lib/categories";
 import { PAYMENT_FILTERS, PaymentFilter, countdown, filterPayments, totalDue, totalPaid } from "@/lib/debt/payments";
-import {
-  ScheduledInstalment,
-  generateSchedule,
-  normaliseIrregularSchedule,
-  toCents,
-} from "@/lib/debt/schedule";
+import { toCents } from "@/lib/debt/schedule";
 
 type View = "active" | "paid_off" | "all";
 type Tab = "payments" | "debts";
@@ -50,7 +47,16 @@ export default function DebtsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Debt | null>(null);
   const [paying, setPaying] = useState<PaymentTarget | null>(null);
+  const [editingInstalment, setEditingInstalment] = useState<{ debt: Debt; instalment: DebtInstalment } | null>(null);
+  const [rescheduling, setRescheduling] = useState<Debt | null>(null);
+  const [extending, setExtending] = useState<Debt | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const done = (msg: string) => {
+    setEditingInstalment(null);
+    setRescheduling(null);
+    setExtending(null);
+    setFlash(msg);
+  };
 
   // Deep links from the dashboard: /debts?tab=debts or /debts?filter=overdue
   useEffect(() => {
@@ -201,6 +207,9 @@ export default function DebtsPage() {
                   onPay={(i) =>
                     setPaying({ payee: debt.name, instalmentId: i.id, dueDate: i.dueDate, amount: i.amount, amountPaid: i.amountPaid, remaining: i.remaining })
                   }
+                  onEditInstalment={(i) => setEditingInstalment({ debt, instalment: i })}
+                  onReschedule={() => setRescheduling(debt)}
+                  onExtend={() => setExtending(debt)}
                 />
               ))}
             </div>
@@ -210,6 +219,9 @@ export default function DebtsPage() {
 
       <AddDebtModal isOpen={showAdd} onClose={() => setShowAdd(false)} onSaved={(msg) => setFlash(msg)} />
       <EditDebtModal debt={editing} onClose={() => setEditing(null)} />
+      <EditInstalmentModal target={editingInstalment} onClose={() => setEditingInstalment(null)} onDone={done} />
+      <RescheduleModal debt={rescheduling} onClose={() => setRescheduling(null)} onDone={done} />
+      <ExtendScheduleModal debt={extending} onClose={() => setExtending(null)} onDone={done} />
       <PaymentModal
         target={paying}
         onClose={() => setPaying(null)}
@@ -242,6 +254,9 @@ function DebtCard({
   onToggle,
   onEdit,
   onPay,
+  onEditInstalment,
+  onReschedule,
+  onExtend,
 }: {
   debt: Debt;
   combined: boolean;
@@ -249,7 +264,12 @@ function DebtCard({
   onToggle: () => void;
   onEdit: () => void;
   onPay: (i: DebtInstalment) => void;
+  onEditInstalment: (i: DebtInstalment) => void;
+  onReschedule: () => void;
+  onExtend: () => void;
 }) {
+  const active = debt.status === "active";
+  const regular = ["weekly", "biweekly", "monthly", "yearly"].includes(debt.frequency) && !!debt.repaymentAmount;
   const paidPct = debt.originalAmount > 0 ? Math.round((1 - debt.outstandingBalance / debt.originalAmount) * 100) : 0;
   const next = debt.nextInstalment;
   const paidCount = debt.instalments.filter((i) => i.status === "paid").length;
@@ -322,15 +342,25 @@ function DebtCard({
               {debt.startDate && <> · started {formatDate(debt.startDate)}</>}
               {debt.endDate && <> · ends {formatDate(debt.endDate)}</>}
             </p>
-            <Button variant="outline" size="sm" icon={<Pencil className="h-3.5 w-3.5" />} onClick={onEdit}>
-              Edit details
-            </Button>
+            <div className="flex flex-wrap gap-1.5">
+              {active && (
+                <Button variant="outline" size="sm" icon={<CalendarClock className="h-3.5 w-3.5" />} onClick={onReschedule}>
+                  Reschedule
+                </Button>
+              )}
+              <Button variant="outline" size="sm" icon={<Pencil className="h-3.5 w-3.5" />} onClick={onEdit}>
+                Edit details
+              </Button>
+            </div>
           </div>
           {debt.unscheduledBalance > 0 && (
-            <p className="mb-3 flex items-start gap-1.5 rounded-xl bg-warning/12 px-3 py-2 text-footnote text-label">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-warning" />
-              {formatRM(debt.unscheduledBalance)} of the outstanding balance has no scheduled payment yet.
-            </p>
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-warning/12 px-3 py-2 text-footnote text-label">
+              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-warning" />
+              <span className="flex-1">{formatRM(debt.unscheduledBalance)} of the outstanding balance has no scheduled payment yet.</span>
+              <Button variant="ghost" size="sm" onClick={regular ? onExtend : onReschedule}>
+                {regular ? "Add instalments" : "Reschedule"}
+              </Button>
+            </div>
           )}
           {debt.notes && <p className="mb-3 rounded-xl bg-gray/12 px-3 py-2 text-footnote text-label-2">{debt.notes}</p>}
 
@@ -369,10 +399,15 @@ function DebtCard({
                         <span className={`rounded-full px-2 py-0.5 text-caption font-semibold ${style.className}`}>{style.label}</span>
                       </td>
                       <td className="py-2 text-right">
-                        {i.remaining > 0 && debt.status === "active" && (
-                          <Button variant="success" size="sm" onClick={() => onPay(i)}>
-                            Record payment
-                          </Button>
+                        {i.remaining > 0 && active && (
+                          <span className="inline-flex gap-1.5">
+                            <Button variant="ghost" size="sm" onClick={() => onEditInstalment(i)} aria-label={`Edit instalment due ${formatDate(i.dueDate)}`}>
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button variant="success" size="sm" onClick={() => onPay(i)}>
+                              Record payment
+                            </Button>
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -394,12 +429,6 @@ function DebtCard({
 /** Debt types that usually come from buying something, so the purchase option starts ticked. */
 const PURCHASE_TYPES = new Set<DebtType>(["bnpl", "credit_card", "business_credit_card", "supplier_invoice"]);
 
-interface IrregularRow {
-  key: number;
-  due_date: string;
-  amount: string;
-}
-
 function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: () => void; onSaved: (msg: string) => void }) {
   const { mode, addDebt } = useFinance();
   const types = debtTypesFor(mode);
@@ -408,10 +437,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
   const [debtType, setDebtType] = useState<DebtType>(types[0].value);
   const [original, setOriginal] = useState("");
   const [outstanding, setOutstanding] = useState("");
-  const [frequency, setFrequency] = useState<DebtFrequency>("monthly");
-  const [repayment, setRepayment] = useState("");
-  const [firstDue, setFirstDue] = useState(todayISO());
-  const [rows, setRows] = useState<IrregularRow[]>([{ key: 0, due_date: todayISO(), amount: "" }]);
+  const [draft, setDraft] = useState<ScheduleDraft>(emptyDraft());
   const [interestRate, setInterestRate] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -432,10 +458,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
     setDebtType(debtTypesFor(mode)[0].value);
     setOriginal("");
     setOutstanding("");
-    setFrequency("monthly");
-    setRepayment("");
-    setFirstDue(todayISO());
-    setRows([{ key: 0, due_date: todayISO(), amount: "" }]);
+    setDraft(emptyDraft());
     setInterestRate("");
     setStartDate("");
     setEndDate("");
@@ -448,30 +471,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
   const owed = parseFloat(outstanding || original);
 
   // The schedule is computed by the same generator the seed and tests use.
-  const preview = useMemo((): { schedule?: ScheduledInstalment[]; problem?: string } => {
-    try {
-      if (frequency === "irregular") {
-        const filled = rows.filter((r) => r.due_date || r.amount);
-        if (filled.length === 0) return { problem: "Add at least one payment." };
-        return {
-          schedule: normaliseIrregularSchedule(filled.map((r) => ({ due_date: r.due_date, amount: parseFloat(r.amount) }))),
-        };
-      }
-      if (!(owed > 0)) return { problem: "Enter how much is still owed." };
-      return {
-        schedule: generateSchedule({
-          amount: owed,
-          frequency,
-          firstDueDate: firstDue,
-          instalmentAmount: frequency === "one_time" ? undefined : parseFloat(repayment),
-        }),
-      };
-    } catch (e) {
-      return { problem: e instanceof Error ? e.message : String(e) };
-    }
-  }, [frequency, rows, owed, firstDue, repayment]);
-
-  const scheduleTotal = preview.schedule?.reduce((s, i) => s + toCents(i.amount), 0) ?? 0;
+  const preview = useMemo(() => previewSchedule(draft, owed), [draft, owed]);
 
   const submit = async () => {
     setError(null);
@@ -494,8 +494,8 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
           debtType,
           originalAmount: orig,
           outstandingBalance: owed,
-          repaymentAmount: frequency === "irregular" || frequency === "one_time" ? undefined : parseFloat(repayment),
-          frequency,
+          repaymentAmount: draftRepayment(draft),
+          frequency: draft.frequency,
           interestRate: rate,
           startDate: startDate || undefined,
           endDate: endDate || undefined,
@@ -545,89 +545,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
           />
         </div>
 
-        <div className="rounded-2xl bg-gray/7 p-4">
-          <p className="mb-3 text-headline text-label">Repayment schedule</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Select
-              label="Frequency"
-              value={frequency}
-              onChange={(e) => setFrequency(e.target.value as DebtFrequency)}
-              options={Object.entries(FREQUENCY_LABELS).map(([value, label]) => ({ value, label }))}
-            />
-            {frequency !== "irregular" && (
-              <Input label={frequency === "one_time" ? "Due date" : "First due date"} type="date" value={firstDue} onChange={(e) => setFirstDue(e.target.value)} />
-            )}
-            {frequency !== "irregular" && frequency !== "one_time" && (
-              <Input label="Repayment per instalment (RM)" type="number" step="0.01" min="0" value={repayment} onChange={(e) => setRepayment(e.target.value)} />
-            )}
-          </div>
-
-          {frequency === "irregular" && (
-            <div className="mt-3 space-y-2">
-              {rows.map((r, idx) => (
-                <div key={r.key} className="flex items-end gap-2">
-                  <Input
-                    label={idx === 0 ? "Due date" : undefined}
-                    type="date"
-                    value={r.due_date}
-                    onChange={(e) => setRows(rows.map((x) => (x.key === r.key ? { ...x, due_date: e.target.value } : x)))}
-                  />
-                  <Input
-                    label={idx === 0 ? "Amount (RM)" : undefined}
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={r.amount}
-                    onChange={(e) => setRows(rows.map((x) => (x.key === r.key ? { ...x, amount: e.target.value } : x)))}
-                  />
-                  <button
-                    className="mb-1 press rounded-lg p-2 text-label-3 hover:bg-gray/12 hover:text-negative disabled:opacity-30"
-                    onClick={() => setRows(rows.filter((x) => x.key !== r.key))}
-                    disabled={rows.length === 1}
-                    aria-label="Remove payment"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Plus className="h-3.5 w-3.5" />}
-                onClick={() => setRows([...rows, { key: Date.now(), due_date: "", amount: "" }])}
-              >
-                Add payment
-              </Button>
-            </div>
-          )}
-
-          <div className="mt-4">
-            {preview.schedule ? (
-              <>
-                <p className="mb-1 text-caption font-semibold uppercase tracking-wide text-label-3">
-                  Preview · {preview.schedule.length} payment{preview.schedule.length === 1 ? "" : "s"} · total{" "}
-                  {formatRM(scheduleTotal / 100)}
-                </p>
-                <div className="max-h-40 overflow-y-auto rounded-xl bg-gray/12 px-3 py-2 text-footnote">
-                  {preview.schedule.map((i) => (
-                    <div key={i.due_date} className="tabular flex justify-between py-0.5 text-label">
-                      <span>{formatDate(i.due_date)}</span>
-                      <span>{formatRM(i.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-                {frequency === "irregular" && owed > 0 && scheduleTotal !== toCents(owed) && (
-                  <p className="mt-1 text-footnote text-warning">
-                    The payments add up to {formatRM(scheduleTotal / 100)}, but the outstanding balance is {formatRM(owed)}. That's fine
-                    if the difference is interest or fees; otherwise adjust the amounts.
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="text-footnote text-label-3">{preview.problem}</p>
-            )}
-          </div>
-        </div>
+        <ScheduleEditor draft={draft} onChange={setDraft} amount={owed} />
 
         <div className="rounded-2xl bg-gray/7 p-4">
           <label className="flex cursor-pointer items-start gap-3">

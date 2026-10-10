@@ -20,6 +20,7 @@ import {
   AppNotification,
   Debt,
   DebtDetailsUpdate,
+  DebtFrequency,
   NewDebtInput,
   NewTransaction,
 } from "./types";
@@ -35,6 +36,10 @@ import {
   markCommitmentPaidOnce,
   createDebt,
   updateDebtDetails,
+  updateInstalment,
+  cancelInstalment,
+  addInstalments,
+  rescheduleDebt,
   recordDebtPayment,
   PaymentResult,
 } from "./db";
@@ -90,6 +95,11 @@ interface FinanceContextValue {
     interest: number;
     idempotencyKey: string;
   }) => Promise<PaymentResult>;
+  // Schedule edits. Paid and partly paid instalments are never changed.
+  editInstalment: (instalmentId: string, dueDate: string, amount: number) => Promise<void>;
+  cancelInstalment: (instalmentId: string) => Promise<void>;
+  addInstalments: (debtId: string, schedule: ScheduledInstalment[]) => Promise<number>;
+  rescheduleDebt: (debtId: string, frequency: DebtFrequency, repaymentAmount: number | undefined, schedule: ScheduledInstalment[]) => Promise<number>;
 
   // Computed values
   summary: FinancialSummary;
@@ -300,6 +310,21 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     [writeOrThrow, allDebts]
   );
 
+  const editInstalment = useCallback(
+    (id: string, dueDate: string, amount: number) => writeOrThrow(() => updateInstalment(id, dueDate, amount)),
+    [writeOrThrow]
+  );
+  const cancelInstalmentAction = useCallback((id: string) => writeOrThrow(() => cancelInstalment(id)), [writeOrThrow]);
+  const addInstalmentsAction = useCallback(
+    (debtId: string, schedule: ScheduledInstalment[]) => writeOrThrow(() => addInstalments(debtId, schedule)),
+    [writeOrThrow]
+  );
+  const rescheduleDebtAction = useCallback(
+    (debtId: string, frequency: DebtFrequency, repaymentAmount: number | undefined, schedule: ScheduledInstalment[]) =>
+      writeOrThrow(() => rescheduleDebt(debtId, frequency, repaymentAmount, schedule)),
+    [writeOrThrow]
+  );
+
   const recordPayment = useCallback(
     (p: Parameters<typeof recordDebtPayment>[0]) => writeOrThrow(() => recordDebtPayment(p)),
     [writeOrThrow]
@@ -468,6 +493,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     addDebt,
     updateDebt,
     recordPayment,
+    editInstalment,
+    cancelInstalment: cancelInstalmentAction,
+    addInstalments: addInstalmentsAction,
+    rescheduleDebt: rescheduleDebtAction,
     summary,
     cashFlow: cash,
     budget,

@@ -3,7 +3,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useFinance } from "@/lib/FinanceContext";
 import { ChatMessage, AgentExecutionStep, TransactionPreviewData, TransactionType } from "@/lib/types";
-import { formatRM, formatDateShort } from "@/lib/utils";
+import { formatRM, formatDateShort, todayISO } from "@/lib/utils";
+import { answerDebtQuestion } from "@/lib/debt/agent";
+import { buildPayments } from "@/lib/debt/payments";
 import {
   ArrowUp,
   Sparkles,
@@ -25,6 +27,8 @@ const SUGGESTED_PROMPTS = [
   "Bro, can I afford to spend RM300?",
   "Bro, help me manage my monthly budget.",
   "Bro, show my upcoming bills.",
+  "Bro, who do I need to pay this week?",
+  "Bro, how much do I owe Shopee?",
 ];
 
 const AGENT_STEP_ICONS: Record<string, typeof Brain> = {
@@ -49,7 +53,7 @@ function welcomeMessage(): ChatMessage {
 }
 
 export default function FinanceBroAIPage() {
-  const { summary, mode, addTransaction, profile, cashFlow } = useFinance();
+  const { summary, mode, addTransaction, profile, cashFlow, debts, commitments, allDebts } = useFinance();
   // Amounts "due" only count what falls due by the end of this month.
   const dueBy = formatDateShort(cashFlow.monthEnd);
   const [messages, setMessages] = useState<ChatMessage[]>(() => [welcomeMessage()]);
@@ -119,6 +123,30 @@ export default function FinanceBroAIPage() {
     const rmMatch = userText.match(/RM?\s?(\d+(?:\.\d+)?)/i);
     const amount = rmMatch ? parseFloat(rmMatch[1]) : 0;
     const account = mode === "individual" ? "personal" : "business";
+
+    // Debt questions first: every figure comes from the same functions as the Debts page.
+    const today = todayISO();
+    const debtAnswer = answerDebtQuestion(userText, {
+      debts,
+      payments: buildPayments(debts, commitments, today),
+      allDebts,
+      cashFlow,
+      balance: summary.currentBalance,
+      today,
+    });
+    if (debtAnswer) {
+      const steps = createAgentSteps(["Understanding request", "Retrieving financial records", "Analyzing information", "Verifying results"]);
+      animateAgentSteps(steps, () =>
+        callback({
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: debtAnswer,
+          timestamp: new Date().toISOString(),
+          agentSteps: steps.map((s) => ({ ...s, status: "completed" as const })),
+        })
+      );
+      return;
+    }
 
     // Scenario 1: "I spent RMXX"
     if (lowerText.includes("spent") && amount > 0) {

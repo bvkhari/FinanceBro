@@ -151,7 +151,7 @@ Keputusan reka bentuk:
   - [x] Label jelas "in-app" sahaja (tiada notifikasi luar yang dihantar)
   - Diuji dalam browser (10 Okt): Personal 3 peringatan (sewa esok, SPayLater 12 Okt, CelcomDigi 13 Okt; headphones 14 Okt tak masuk sebab 4 hari). Business: Unifi "overdue by 3 days", Kopi Bumi dan Farm Fresh (Supplier invoice)
 
-## Fasa 4: Bonus 🔄 *sedang dibuat*
+## Fasa 4: Bonus ✅ *siap 2026-10-10*
 
 Pendekatan: bina yang paling sikit. Banyak item dah ada dari fasa lepas.
 
@@ -168,10 +168,13 @@ Pendekatan: bina yang paling sikit. Banyak item dah ada dari fasa lepas.
   - Ditangguh: carta sejarah baki hutang. Data dah ada dalam `debt_payments`; bina bila diminta
   - Diuji dalam browser: Business "Owed by type" (loan RM18,400 · equipment RM16,100 · supplier RM3,400 · kad RM2,350 = RM40,250). CSV hutang dan CSV bayaran filter Overdue (Unifi RM199) betul. Satu unit test untuk escaping CSV
 
-- [ ] **14. Debt Agent** (chat `/financebro-ai`)
-  - [ ] Function tulen `answerDebtQuestion()`: semua nombor dari function sedia ada (`payments.ts`, `cashflow.ts`), bukan LLM
-  - [ ] Jawab 9 soalan contoh spec, termasuk hutang supplier business (guna data dua profile)
-  - [ ] Tanya balik bila provider tak dijumpai atau jumlah extra tiada
-  - [ ] Setiap jawapan ada baris "Cara kira"
-  - [ ] Unit test untuk setiap soalan
+- [x] **14. Debt Agent** (chat `/financebro-ai`)
+  - [x] Function tulen `answerDebtQuestion()`: semua nombor dari function sedia ada (`payments.ts`, `cashflow.ts`), bukan LLM
+  - [x] Jawab 9 soalan contoh spec, termasuk hutang supplier business (guna data dua profile)
+  - [x] Tanya balik bila provider tak dijumpai atau jumlah extra tiada
+  - [x] Setiap jawapan ada baris "Cara kira"
+  - [x] Unit test untuk setiap soalan
   - Ditangguh: LLM sebenar. Perlu API key dan route `/api/chat`; function yang sama boleh jadi tool LLM nanti
+  - Diuji dalam browser dengan data sebenar: "owe Shopee" → RM750.60 (termasuk SPayLater), "pay this week" → RM733.40 (5 bayaran, bil termasuk), "business supplier debts" dari profile Personal → RM3,400
+  - Bug dijumpai dalam test dan dibetulkan: "owe Atome" (tiada dalam rekod) dulu jawab jumlah semua hutang, sekarang tanya balik
+

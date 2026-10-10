@@ -16,7 +16,7 @@ import { Input, Select, TextArea } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
-import { formatDate, formatRM, getRelativeTime, todayISO } from "@/lib/utils";
+import { formatDate, formatRM, todayISO } from "@/lib/utils";
 import { Debt, DebtFrequency, DebtInstalment, DebtType } from "@/lib/types";
 import {
   DEBT_TYPE_LABELS,
@@ -24,6 +24,11 @@ import {
   INSTALMENT_STATUS_STYLE,
   debtTypesFor,
 } from "@/lib/debt/labels";
+import { PaymentModal, PaymentTarget } from "@/components/debt/PaymentModal";
+import { PaymentRows } from "@/components/debt/PaymentRows";
+import { DebtScopeControl, ProfileTag } from "@/components/debt/DebtScopeControl";
+import { useDebtView } from "@/lib/debt/useDebtView";
+import { PAYMENT_FILTERS, PaymentFilter, countdown, filterPayments, totalDue, totalPaid } from "@/lib/debt/payments";
 import {
   ScheduledInstalment,
   generateSchedule,
@@ -32,38 +37,67 @@ import {
 } from "@/lib/debt/schedule";
 
 type View = "active" | "paid_off" | "all";
+type Tab = "payments" | "debts";
 
 export default function DebtsPage() {
-  const { mode, debts } = useFinance();
+  const { mode, markCommitmentPaid } = useFinance();
+  const { combined, today, debts, payments } = useDebtView();
+  const [tab, setTab] = useState<Tab>("payments");
+  const [filter, setFilter] = useState<PaymentFilter>("all");
   const [view, setView] = useState<View>("active");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Debt | null>(null);
-  const [paying, setPaying] = useState<{ debt: Debt; instalment: DebtInstalment } | null>(null);
+  const [paying, setPaying] = useState<PaymentTarget | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
-  // Messages and open rows belong to one profile; clear them when switching.
+  // Deep links from the dashboard: /debts?tab=debts or /debts?filter=overdue
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("tab") === "debts") setTab("debts");
+    const f = q.get("filter");
+    if (f && PAYMENT_FILTERS.some((o) => o.value === f)) setFilter(f as PaymentFilter);
+  }, []);
+
+  // Messages and open rows belong to one view; clear them when switching.
   useEffect(() => {
     setFlash(null);
     setExpanded(null);
-  }, [mode]);
+  }, [mode, combined]);
 
-  const visible = useMemo(
-    () => debts.filter((d) => view === "all" || d.status === view),
-    [debts, view]
-  );
+  const visible = useMemo(() => debts.filter((d) => view === "all" || d.status === view), [debts, view]);
+  const shown = useMemo(() => filterPayments(payments, filter, today), [payments, filter, today]);
+  const unpaidCount = shown.filter((p) => p.remaining > 0).length;
+
+  const title = combined ? "All Debts" : mode === "business" ? "Business Debts" : "Personal Debts";
 
   return (
     <div className="mx-auto max-w-4xl px-4 pb-10 pt-2 sm:px-6 lg:px-8">
       <PageHeader
-        title={mode === "business" ? "Business Debts" : "Personal Debts"}
-        subtitle="What you owe, each repayment schedule, and the payments you've made."
+        title={title}
+        subtitle="Who you need to pay and when, what you still owe, and the payments you've made."
         accessory={
-          <Button onClick={() => setShowAdd(true)} icon={<Plus className="h-4 w-4" strokeWidth={2.5} />} className="max-sm:w-full">
-            Add debt
-          </Button>
+          combined ? undefined : (
+            <Button onClick={() => setShowAdd(true)} icon={<Plus className="h-4 w-4" strokeWidth={2.5} />} className="max-sm:w-full">
+              Add debt
+            </Button>
+          )
         }
       />
+
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <Segmented<Tab>
+          aria-label="Section"
+          className="w-full sm:w-56"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "payments", label: "Payments" },
+            { value: "debts", label: "Debts" },
+          ]}
+        />
+        <DebtScopeControl className="w-full sm:w-72" />
+      </div>
 
       {flash && (
         <div role="status" className="mb-4 flex items-start gap-2 rounded-2xl bg-positive/12 px-4 py-3 text-subhead text-label">
@@ -75,38 +109,102 @@ export default function DebtsPage() {
         </div>
       )}
 
-      <Segmented
-        aria-label="Filter debts"
-        size="sm"
-        className="mb-4 w-full sm:max-w-[20rem]"
-        value={view}
-        onChange={setView}
-        options={(["active", "paid_off", "all"] as View[]).map((v) => ({
-          value: v,
-          label: `${{ active: "Active", paid_off: "Paid off", all: "All" }[v]} ${
-            v === "all" ? debts.length : debts.filter((d) => d.status === v).length
-          }`,
-        }))}
-      />
+      {tab === "payments" ? (
+        <section aria-label="Upcoming payments">
+          <div className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0" role="radiogroup" aria-label="Filter payments">
+            {PAYMENT_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                role="radio"
+                aria-checked={filter === f.value}
+                onClick={() => setFilter(f.value)}
+                className={`press shrink-0 rounded-full px-3.5 py-1.5 text-subhead font-medium ${
+                  filter === f.value ? "bg-accent text-white" : "bg-gray/12 text-label"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
 
-      {visible.length === 0 ? (
-        <div className="rounded-2xl bg-surface px-6 py-14 text-center shadow-card">
-          <p className="text-headline">{view === "paid_off" ? "Nothing paid off yet" : "No debts here"}</p>
-          <p className="mt-1 text-subhead text-label-2">Add a debt to track what you owe and when to pay it.</p>
-        </div>
+          <div className="mb-3 flex items-baseline justify-between gap-3 px-1">
+            {filter === "paid" ? (
+              <p className="text-subhead text-label-2">
+                <span className="tabular text-title3 text-label">{formatRM(totalPaid(shown))}</span> paid · {shown.length} payment{shown.length === 1 ? "" : "s"}
+              </p>
+            ) : (
+              <p className="text-subhead text-label-2">
+                <span className={`tabular text-title3 ${filter === "overdue" && totalDue(shown) > 0 ? "text-negative" : "text-label"}`}>
+                  {formatRM(totalDue(shown))}
+                </span>{" "}
+                to pay · {unpaidCount} payment{unpaidCount === 1 ? "" : "s"}
+              </p>
+            )}
+            {filter !== "paid" && (
+              <p className="hidden text-footnote text-label-3 sm:block">Paid and cancelled payments aren&apos;t counted</p>
+            )}
+          </div>
+
+          <div className="overflow-hidden rounded-2xl bg-surface shadow-card">
+            {shown.length === 0 ? (
+              <div className="px-6 py-14 text-center">
+                <p className="text-headline">{EMPTY_PAYMENTS[filter]}</p>
+              </div>
+            ) : (
+              <PaymentRows
+                items={shown}
+                today={today}
+                combined={combined}
+                onPay={(p) =>
+                  setPaying({ payee: p.payee, instalmentId: p.instalmentId!, dueDate: p.dueDate, amount: p.amount, amountPaid: p.amountPaid, remaining: p.remaining })
+                }
+                onMarkBillPaid={(p) => {
+                  markCommitmentPaid(p.commitmentId!);
+                  setFlash(`Marked ${p.payee} (${formatRM(p.remaining)}) as paid.`);
+                }}
+              />
+            )}
+          </div>
+        </section>
       ) : (
-        <div className="space-y-3">
-          {visible.map((debt) => (
-            <DebtCard
-              key={debt.id}
-              debt={debt}
-              expanded={expanded === debt.id}
-              onToggle={() => setExpanded(expanded === debt.id ? null : debt.id)}
-              onEdit={() => setEditing(debt)}
-              onPay={(instalment) => setPaying({ debt, instalment })}
-            />
-          ))}
-        </div>
+        <section aria-label="Debts">
+          <Segmented
+            aria-label="Filter debts"
+            size="sm"
+            className="mb-4 w-full sm:max-w-[20rem]"
+            value={view}
+            onChange={setView}
+            options={(["active", "paid_off", "all"] as View[]).map((v) => ({
+              value: v,
+              label: `${{ active: "Active", paid_off: "Paid off", all: "All" }[v]} ${
+                v === "all" ? debts.length : debts.filter((d) => d.status === v).length
+              }`,
+            }))}
+          />
+
+          {visible.length === 0 ? (
+            <div className="rounded-2xl bg-surface px-6 py-14 text-center shadow-card">
+              <p className="text-headline">{view === "paid_off" ? "Nothing paid off yet" : "No debts here"}</p>
+              <p className="mt-1 text-subhead text-label-2">Add a debt to track what you owe and when to pay it.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {visible.map((debt) => (
+                <DebtCard
+                  key={debt.id}
+                  debt={debt}
+                  combined={combined}
+                  expanded={expanded === debt.id}
+                  onToggle={() => setExpanded(expanded === debt.id ? null : debt.id)}
+                  onEdit={() => setEditing(debt)}
+                  onPay={(i) =>
+                    setPaying({ payee: debt.name, instalmentId: i.id, dueDate: i.dueDate, amount: i.amount, amountPaid: i.amountPaid, remaining: i.remaining })
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       <AddDebtModal isOpen={showAdd} onClose={() => setShowAdd(false)} onSaved={(msg) => setFlash(msg)} />
@@ -123,18 +221,29 @@ export default function DebtsPage() {
   );
 }
 
+const EMPTY_PAYMENTS: Record<PaymentFilter, string> = {
+  all: "No payments yet",
+  today: "Nothing due today",
+  next7: "Nothing due in the next 7 days",
+  month: "Nothing left to pay this month",
+  overdue: "Nothing overdue",
+  paid: "No payments recorded yet",
+};
+
 // ------------------------------------------------------------
 // Debt card with its repayment schedule
 // ------------------------------------------------------------
 
 function DebtCard({
   debt,
+  combined,
   expanded,
   onToggle,
   onEdit,
   onPay,
 }: {
   debt: Debt;
+  combined: boolean;
   expanded: boolean;
   onToggle: () => void;
   onEdit: () => void;
@@ -151,6 +260,7 @@ function DebtCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-headline text-label">{debt.name}</h3>
+            {combined && <ProfileTag mode={debt.mode} />}
             <span className="rounded-full bg-gray/12 px-2 py-0.5 text-caption font-medium text-label-2">
               {DEBT_TYPE_LABELS[debt.debtType]}
             </span>
@@ -192,7 +302,7 @@ function DebtCard({
               <>
                 <p className="text-headline text-label">{formatRM(next.remaining)}</p>
                 <p className={`text-caption font-semibold ${next.status === "overdue" ? "text-negative" : "text-label-2"}`}>
-                  {formatDate(next.dueDate)} · {getRelativeTime(next.dueDate)}
+                  {formatDate(next.dueDate)} · {countdown(next.dueDate, todayISO(), next.status)}
                 </p>
               </>
             ) : (
@@ -273,121 +383,6 @@ function DebtCard({
         </div>
       )}
     </div>
-  );
-}
-
-// ------------------------------------------------------------
-// Record a payment (full or partial)
-// ------------------------------------------------------------
-
-function PaymentModal({
-  target,
-  onClose,
-  onPaid,
-}: {
-  target: { debt: Debt; instalment: DebtInstalment } | null;
-  onClose: () => void;
-  onPaid: (message: string) => void;
-}) {
-  const { recordPayment } = useFinance();
-  const [amount, setAmount] = useState("");
-  const [interest, setInterest] = useState("");
-  const [paidDate, setPaidDate] = useState(todayISO());
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  // One key per payment attempt: a double submit records the payment once.
-  const [idempotencyKey, setIdempotencyKey] = useState("");
-
-  useEffect(() => {
-    if (!target) return;
-    setAmount(target.instalment.remaining.toFixed(2));
-    setInterest("");
-    setPaidDate(todayISO());
-    setError(null);
-    setSaving(false);
-    setIdempotencyKey(crypto.randomUUID());
-  }, [target]);
-
-  if (!target) return null;
-  const { debt, instalment } = target;
-  const amt = parseFloat(amount);
-  const int = interest ? parseFloat(interest) : 0;
-  const isPartial = !isNaN(amt) && toCents(amt) < toCents(instalment.remaining);
-
-  const submit = async () => {
-    setError(null);
-    if (isNaN(amt) || amt <= 0) return setError("Enter the amount you paid.");
-    if (toCents(amt) > toCents(instalment.remaining)) {
-      return setError(`You can record at most ${formatRM(instalment.remaining)} against this instalment.`);
-    }
-    if (isNaN(int) || int < 0 || int > amt) return setError("Interest and fees must be between RM0 and the amount paid.");
-    if (!paidDate) return setError("Enter the date you paid.");
-    if (paidDate > todayISO()) return setError("The payment date can't be in the future. Only record payments you've already made.");
-
-    setSaving(true);
-    try {
-      const r = await recordPayment({ instalmentId: instalment.id, amount: amt, paidDate, interest: int, idempotencyKey });
-      onPaid(
-        r.duplicate
-          ? "That payment was already recorded, so nothing changed."
-          : `Recorded ${formatRM(amt)} to ${debt.name}. ` +
-              (r.instalment_remaining ? `${formatRM(r.instalment_remaining)} is still due on this instalment. ` : "") +
-              `Outstanding balance is now ${formatRM(r.outstanding_balance ?? debt.outstandingBalance)}.`
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal isOpen onClose={onClose} title="Record payment" size="sm">
-      <div className="space-y-4">
-        <div className="rounded-xl bg-gray/12 p-3 text-footnote text-label-2">
-          <p className="text-headline text-label">{debt.name}</p>
-          <p>
-            Instalment due {formatDate(instalment.dueDate)} · {formatRM(instalment.amount)}
-            {instalment.amountPaid > 0 && <> · {formatRM(instalment.amountPaid)} already paid</>}
-          </p>
-          <p className="mt-1 font-semibold text-label">Still due: {formatRM(instalment.remaining)}</p>
-        </div>
-
-        <Input label="Amount paid (RM)" type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <Input label="Date paid" type="date" max={todayISO()} value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
-        <Input
-          label="Of which interest and fees (RM, optional)"
-          type="number"
-          step="0.01"
-          min="0"
-          placeholder="0.00"
-          value={interest}
-          onChange={(e) => setInterest(e.target.value)}
-        />
-
-        <p className="flex items-start gap-1.5 text-footnote text-label-2">
-          <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-          {isPartial ? "This is a partial payment. The rest stays due on this instalment. " : ""}
-          Only record a payment you have already made. Interest and fees are recorded as an expense; the rest reduces
-          what you owe.
-        </p>
-
-        {error && (
-          <p className="flex items-start gap-1.5 rounded-xl bg-negative/12 px-3 py-2 text-footnote text-negative">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-            {error}
-          </p>
-        )}
-
-        <div className="flex gap-2">
-          <Button variant="success" className="flex-1" onClick={submit} disabled={saving}>
-            {saving ? "Recording…" : isPartial ? "Record partial payment" : "Record full payment"}
-          </Button>
-          <Button variant="outline" className="flex-1" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-        </div>
-      </div>
-    </Modal>
   );
 }
 
@@ -650,7 +645,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
 // ------------------------------------------------------------
 
 function EditDebtModal({ debt, onClose }: { debt: Debt | null; onClose: () => void }) {
-  const { mode, updateDebt } = useFinance();
+  const { updateDebt } = useFinance();
   const [name, setName] = useState("");
   const [debtType, setDebtType] = useState<DebtType>("other_personal");
   const [interestRate, setInterestRate] = useState("");
@@ -705,7 +700,7 @@ function EditDebtModal({ debt, onClose }: { debt: Debt | null; onClose: () => vo
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <Select label="Debt type" value={debtType} onChange={(e) => setDebtType(e.target.value as DebtType)} options={debtTypesFor(mode)} />
+          <Select label="Debt type" value={debtType} onChange={(e) => setDebtType(e.target.value as DebtType)} options={debtTypesFor(debt.mode)} />
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Input label="Interest rate (% p.a.)" type="number" step="0.01" min="0" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} />

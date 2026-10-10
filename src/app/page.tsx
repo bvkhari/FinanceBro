@@ -10,14 +10,20 @@ import {
   TrendingUp,
   TrendingDown,
   CalendarClock,
-  Target,
   ChevronRight,
-  Receipt,
   AlertTriangle,
   Sparkles,
   ArrowUpRight,
+  ArrowRight,
+  Clock,
+  CreditCard,
+  Landmark,
 } from "lucide-react";
-import { formatRM, formatDateShort, getRelativeTime } from "@/lib/utils";
+import { useDebtView } from "@/lib/debt/useDebtView";
+import { countdown } from "@/lib/debt/payments";
+import { PaymentRows } from "@/components/debt/PaymentRows";
+import { DebtScopeControl } from "@/components/debt/DebtScopeControl";
+import { formatRM, formatDateShort } from "@/lib/utils";
 import {
   BarChart,
   Bar,
@@ -57,19 +63,11 @@ export default function DashboardPage() {
     categoryBreakdown,
     incomeExpenseData,
     transactions,
-    commitments,
   } = useFinance();
   const [budgetPeriod, setBudgetPeriod] = useState<"weekly" | "monthly">("monthly");
   const [workspace, setWorkspace] = useState<"expenses" | "debt">("expenses");
 
   const recentTransactions = transactions.slice(0, 5);
-  const upcomingCommitments = commitments
-    .filter((c) => c.status !== "paid")
-    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-    .slice(0, 4);
-  const overdueTotal = commitments
-    .filter((c) => c.status === "overdue")
-    .reduce((sum, c) => sum + c.amount, 0);
 
   // Weekly budget calculation
   const weeklySpent = budget.spent / 4.33;
@@ -232,70 +230,88 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : (
-        <div key="debt" className="animate-rise space-y-8">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 [&>*:first-child]:col-span-2 sm:[&>*:first-child]:col-span-1">
-            <StatCard label="Due soon" value={summary.upcomingCommitments} icon={CalendarClock} variant="warning" subtitle={`${upcomingCommitments.length} unpaid`} />
-            <StatCard label="Overdue" value={overdueTotal} icon={AlertTriangle} variant="expense" subtitle="Past the due date" />
-            <StatCard label="After bills" value={summary.projectedRemainingBalance} icon={Target} variant="default" subtitle="Balance once these are paid" />
-          </div>
-
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-4">
-            <Card title="Up next" flush action={<SeeAll href="/commitments" />}>
-              {upcomingCommitments.length === 0 ? (
-                <p className="py-10 text-center text-subhead text-label-2">Nothing due. Nice.</p>
-              ) : (
-                <ul className="grouped-inset">
-                  {upcomingCommitments.map((c) => {
-                    const overdue = c.status === "overdue";
-                    return (
-                      <li key={c.id} className="flex items-center gap-3 px-4 py-3">
-                        <RowIcon tone={overdue ? "negative" : "warning"}>
-                          <Receipt className="h-4 w-4" />
-                        </RowIcon>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-body text-label">{c.name}</p>
-                          <p className={`text-footnote ${overdue ? "font-medium text-negative" : "text-label-2"}`}>
-                            {formatDateShort(c.dueDate)} · {getRelativeTime(c.dueDate)}
-                          </p>
-                        </div>
-                        <p className="tabular text-body font-medium">{formatRM(c.amount)}</p>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </Card>
-
-            <Card title="Reality check" flush>
-              <dl className="grouped px-4">
-                <div className="flex justify-between py-3">
-                  <dt className="text-body text-label-2">Balance</dt>
-                  <dd className="tabular text-body">{formatRM(summary.currentBalance)}</dd>
-                </div>
-                <div className="flex justify-between py-3">
-                  <dt className="text-body text-label-2">Bills still to pay</dt>
-                  <dd className="tabular text-body text-negative">−{formatRM(summary.upcomingCommitments)}</dd>
-                </div>
-                <div className="flex items-baseline justify-between py-3.5">
-                  <dt className="text-headline">Left after bills</dt>
-                  <dd className={`tabular text-title2 ${summary.projectedRemainingBalance < 0 ? "text-negative" : "text-label"}`}>
-                    {formatRM(summary.projectedRemainingBalance)}
-                  </dd>
-                </div>
-              </dl>
-              <Link
-                href="/financebro-ai?q=Bro%2C%20how%20much%20money%20do%20I%20have%20left%3F"
-                className="row-press flex items-center justify-between px-4 py-3 text-body text-accent-text shadow-[inset_0_0.5px_0_var(--separator)]"
-              >
-                Ask FinanceBro to explain this
-                <ChevronRight className="h-4 w-4" />
-              </Link>
-            </Card>
-          </div>
-
-          <AskCard />
-        </div>
+        <DebtWorkspace />
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Debt dashboard: what is owed vs what is due, and who to pay next
+// ------------------------------------------------------------
+
+function DebtWorkspace() {
+  const { combined, today, payments, overview: o } = useDebtView();
+  const upNext = payments.filter((p) => p.remaining > 0).slice(0, 5);
+  const month = new Date(`${today}T00:00:00`).toLocaleDateString("en-MY", { month: "long" });
+  const monthEnd = formatDateShort(o.monthEnd);
+  const next = o.nextPayment;
+
+  return (
+    <div key="debt" className="animate-rise space-y-8">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="px-1 text-subhead text-label-2">
+          <span className="font-semibold text-label">Outstanding debt</span> is everything you still owe.{" "}
+          <span className="font-semibold text-label">Repayments due</span> are only the parts scheduled for that period.
+        </p>
+        <DebtScopeControl className="w-full shrink-0 sm:w-72" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatCard label="Outstanding debt" value={o.totalOutstanding} icon={Landmark} variant="navy" subtitle="Total still owed" />
+        <StatCard label="Due this month" value={o.dueThisMonth} icon={CalendarClock} variant="warning" subtitle={`Repayments in ${month}`} />
+        <StatCard label="Due in 7 days" value={o.dueNext7Days} icon={Clock} variant="warning" subtitle="Today to a week from now" />
+        <StatCard label="Overdue" value={o.overdue} icon={AlertTriangle} variant="expense" subtitle="Repayments past due" />
+        <StatCard label="Active debts" value={o.activeDebts} icon={CreditCard} plain subtitle={combined ? "Personal and business" : "Not yet paid off"} />
+        <Link href="/debts" className="press rounded-2xl">
+          <StatCard
+            label="Next payment"
+            value={next ? next.remaining : 0}
+            icon={ArrowRight}
+            variant="accent"
+            subtitle={next ? `${next.payee} · ${formatDateShort(next.dueDate)} · ${countdown(next.dueDate, today, next.status)}` : "Nothing scheduled"}
+          />
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-4">
+        <Card title="Who to pay next" flush action={<SeeAll href="/debts" />}>
+          {upNext.length === 0 ? (
+            <p className="py-10 text-center text-subhead text-label-2">Nothing to pay. Nice.</p>
+          ) : (
+            <PaymentRows items={upNext} today={today} combined={combined} compact />
+          )}
+        </Card>
+
+        <Card title="Available cash" flush>
+          <dl className="grouped px-4">
+            <div className="flex justify-between py-3">
+              <dt className="text-body text-label-2">{combined ? "Balance (both profiles)" : "Balance"}</dt>
+              <dd className="tabular text-body">{formatRM(o.balance)}</dd>
+            </div>
+            <div className="flex justify-between py-3">
+              <dt className="text-body text-label-2">Debt repayments due by {monthEnd}</dt>
+              <dd className="tabular text-body text-negative">−{formatRM(o.debtDueByMonthEnd)}</dd>
+            </div>
+            <div className="flex justify-between py-3">
+              <dt className="text-body text-label-2">Bills due by {monthEnd}</dt>
+              <dd className="tabular text-body text-negative">−{formatRM(o.billsDueByMonthEnd)}</dd>
+            </div>
+            <div className="flex items-baseline justify-between py-3.5">
+              <dt className="text-headline">Left after these</dt>
+              <dd className={`tabular text-title2 ${o.availableAfterCommitments < 0 ? "text-negative" : "text-label"}`}>
+                {formatRM(o.availableAfterCommitments)}
+              </dd>
+            </div>
+          </dl>
+          <p className="px-4 pb-3 text-footnote text-label-2">
+            Only payments due by {monthEnd} are subtracted (overdue ones included), not the whole outstanding debt of{" "}
+            {formatRM(o.totalOutstanding)}. Income you expect to receive isn&apos;t added.
+          </p>
+        </Card>
+      </div>
+
+      <AskCard />
     </div>
   );
 }

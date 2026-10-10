@@ -69,6 +69,7 @@ interface InstalmentRow {
 
 interface DebtRow {
   id: string;
+  profile_id: string;
   name: string;
   debt_type: DebtType;
   original_amount: string;
@@ -194,6 +195,7 @@ function mapDebt(r: DebtRow, mode: AppMode, today: string): Debt {
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   return {
     id: r.id,
+    profileId: r.profile_id,
     mode,
     name: r.name,
     debtType: r.debt_type,
@@ -314,6 +316,34 @@ export async function insertCommitment(profileId: string, mode: AppMode, c: Omit
 
 export async function updateCommitmentRow(profileId: string, mode: AppMode, id: string, updates: Partial<FinancialCommitment>) {
   check(await supabase.from("commitments").update(commitmentFields(updates, mode)).eq("profile_id", profileId).eq("id", id));
+}
+
+/**
+ * Marks a bill paid and records the payment as one expense transaction.
+ * The status update only succeeds once, so a double click can't record the
+ * payment twice. Returns false when the bill was already paid.
+ */
+export async function markCommitmentPaidOnce(profileId: string, mode: AppMode, c: FinancialCommitment, paidDate: string) {
+  const updated = check(
+    await supabase.from("commitments").update({ status: "paid" })
+      .eq("profile_id", profileId).eq("id", c.id).neq("status", "paid").select("id")
+  ) as { id: string }[];
+  if (updated.length === 0) return false;
+  try {
+    await insertTransaction(profileId, mode, {
+      name: c.name,
+      amount: c.amount,
+      type: "expense",
+      category: c.category,
+      date: paidDate,
+      description: `Payment for ${c.name}`,
+    });
+  } catch (e) {
+    // Put the status back so the bill doesn't look paid without a payment record.
+    await supabase.from("commitments").update({ status: c.status }).eq("profile_id", profileId).eq("id", c.id);
+    throw e;
+  }
+  return true;
 }
 
 // ---------- debts ----------

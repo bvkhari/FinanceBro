@@ -31,6 +31,7 @@ import {
   insertCommitment,
   updateCommitmentRow,
   subscribeToProfile,
+  markCommitmentPaidOnce,
   createDebt,
   updateDebtDetails,
   recordDebtPayment,
@@ -70,6 +71,13 @@ interface FinanceContextValue {
 
   // Debts — these return promises and throw, so forms can show the error
   debts: Debt[];
+  /** Debt views can show the active profile or both profiles combined. */
+  debtScope: DebtScope;
+  setDebtScope: (scope: DebtScope) => void;
+  /** Both profiles' records, each tagged with its mode. Records stay separate. */
+  allDebts: Debt[];
+  allCommitments: FinancialCommitment[];
+  balances: Record<AppMode, number>;
   addDebt: (input: NewDebtInput, schedule: ScheduledInstalment[]) => Promise<void>;
   updateDebt: (id: string, details: DebtDetailsUpdate) => Promise<void>;
   recordPayment: (p: {
@@ -95,7 +103,16 @@ interface FinanceContextValue {
   resetData: () => void;
 }
 
+export type DebtScope = "mode" | "combined";
+
 const FinanceContext = createContext<FinanceContextValue | null>(null);
+
+/** Today's balance for a loaded profile: opening balance + every transaction. */
+function balanceOf(d?: ProfileData): number {
+  if (!d) return 0;
+  const net = d.transactions.reduce((s, t) => s + Math.round(t.amount * 100) * (t.type === "income" ? 1 : -1), 0);
+  return (Math.round(d.profile.startingBalance * 100) + net) / 100;
+}
 
 const MODE_KEY = "financebro-ai-mode";
 
@@ -112,6 +129,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<Partial<Record<AppMode, ProfileData>>>({});
   const [error, setError] = useState<string | null>(null);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const [debtScope, setDebtScope] = useState<DebtScope>("mode");
 
   const reload = useCallback(async (m: AppMode) => {
     try {
@@ -134,6 +152,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   const setMode = useCallback((m: AppMode) => {
     setModeState(m);
+    // Picking a profile leaves the combined debt view.
+    setDebtScope("mode");
     try {
       localStorage.setItem(MODE_KEY, m);
     } catch {
@@ -161,6 +181,15 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const transactions = useMemo(() => current?.transactions ?? [], [current]);
   const commitments = useMemo(() => current?.commitments ?? [], [current]);
   const debts = useMemo(() => current?.debts ?? [], [current]);
+  const allDebts = useMemo(() => [...(data.individual?.debts ?? []), ...(data.business?.debts ?? [])], [data]);
+  const allCommitments = useMemo(
+    () => [...(data.individual?.commitments ?? []), ...(data.business?.commitments ?? [])],
+    [data]
+  );
+  const balances = useMemo(
+    () => ({ individual: balanceOf(data.individual), business: balanceOf(data.business) }),
+    [data]
+  );
 
   // === Service-layer functions (Supabase) ===
 
@@ -202,22 +231,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   const markCommitmentPaid = useCallback(
     (id: string) => {
-      const commitment = commitments.find((c) => c.id === id);
-      if (!commitment) return;
-      // Record the payment the user made, then mark the commitment paid. Nothing moves money.
-      write(async (pid) => {
-        await insertTransaction(pid, mode, {
-          name: commitment.name,
-          amount: commitment.amount,
-          type: "expense",
-          category: commitment.category,
-          date: todayISO(),
-          description: `Payment for ${commitment.name}`,
-        });
-        await updateCommitmentRow(pid, mode, id, { status: "paid" });
-      });
+      // Look in both profiles, so the combined debt view can pay either profile's bill.
+      const owner = (["individual", "business"] as AppMode[]).find((m) => data[m]?.commitments.some((c) => c.id === id));
+      const d = owner && data[owner];
+      const commitment = d?.commitments.find((c) => c.id === id);
+      if (!owner || !d || !commitment) return;
+      // Record the payment the user made, once. Nothing moves money.
+      markCommitmentPaidOnce(d.profile.id, owner, commitment, todayISO())
+        .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => reload(owner));
     },
-    [write, mode, commitments]
+    [data, reload]
   );
 
   /** Like `write`, but rethrows so the calling form can show the error. */
@@ -227,10 +251,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       try {
         return await fn(profileId);
       } finally {
-        reload(mode);
+        // A debt payment in the combined view can belong to either profile.
+        reloadAll();
       }
     },
-    [profileId, mode, reload]
+    [profileId, reloadAll]
   );
 
   const addDebt = useCallback(
@@ -239,8 +264,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateDebt = useCallback(
-    (id: string, details: DebtDetailsUpdate) => writeOrThrow((pid) => updateDebtDetails(pid, id, details)),
-    [writeOrThrow]
+    (id: string, details: DebtDetailsUpdate) =>
+      // Use the debt's own profile: in the combined view it may not be the active one.
+      writeOrThrow((pid) => updateDebtDetails(allDebts.find((d) => d.id === id)?.profileId ?? pid, id, details)),
+    [writeOrThrow, allDebts]
   );
 
   const recordPayment = useCallback(
@@ -407,6 +434,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     updateCommitment,
     markCommitmentPaid,
     debts,
+    debtScope,
+    setDebtScope,
+    allDebts,
+    allCommitments,
+    balances,
     addDebt,
     updateDebt,
     recordPayment,

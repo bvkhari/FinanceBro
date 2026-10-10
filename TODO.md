@@ -65,7 +65,7 @@ Nota dari test Fasa 1:
 - [x] Test baru untuk bug 1 dan 2
 - Disahkan: probe database (rollback) untuk bug 1–2, browser untuk bug 3 dan amaran 4. 23 test lulus
 
-## Fasa 2: UI hutang 🔄 *sedang dibuat*
+## Fasa 2: UI hutang ✅ *siap 2026-10-10*
 
 Keputusan reka bentuk:
 - Senarai bayaran gabungkan **instalment hutang** dan **bil** (`commitments`), sebab soalan user ialah "siapa aku kena bayar", bukan "hutang mana"
@@ -74,33 +74,46 @@ Keputusan reka bentuk:
 - "Available cash selepas commitments" = baki semasa − bayaran yang belum dibayar sampai hujung bulan ni (instalment + bil, termasuk overdue). Andaian ni ditulis dalam UI. Formula penuh cash flow dalam step 9
 - Scope Personal / Business / Combined: satu kawalan dalam Dashboard Debt dan page Debts. Combined tunjuk rekod dua-dua profile dengan label, tapi rekod tetap berasingan
 
-- [ ] **5. Upcoming Payments** (tab "Payments" dalam page `/debts`) *(separuh: ada senarai bayaran akan datang dari `commitments` dalam workspace Debt)*
-  - [ ] Kepada siapa, RM, tarikh tepat, countdown ("Due today", "Due tomorrow", "Due in 2 days", "Overdue by 3 days"), kategori, frequency, status (upcoming/partly paid/paid/overdue/cancelled)
-  - [ ] Susun ikut tarikh due terdekat
-  - [ ] Filter: semua, hari ni, 7 hari, bulan ni, overdue, paid
-  - [ ] Jumlah untuk tempoh dipilih (tidak kira paid dan cancelled; partial kira baki sahaja)
-  - [ ] Butang Record payment (hutang) dan Mark paid (bil) terus dari senarai
-  - [ ] Unit test untuk countdown, filter dan jumlah
-- [ ] **6. Debt Dashboard** (workspace Debt dalam dashboard) *(separuh: ada kad Upcoming Commitments, Overdue dan Projected Remaining)*
-  - [ ] Total outstanding debt
-  - [ ] Due bulan ni
-  - [ ] Due 7 hari akan datang
-  - [ ] Total overdue
-  - [ ] Bilangan hutang aktif
-  - [ ] Next payment
-  - [ ] Available cash selepas commitments (dengan andaian ditulis)
-  - [ ] Beza yang jelas antara outstanding debt dan repayment due
-  - [ ] Senarai "Up next" guna data hutang dan bil
-  - [ ] Unit test untuk semua jumlah
-- [ ] **7. Paparan jadual bayaran setiap hutang** (tarikh due, tarikh bayar, amaun, status) *(separuh: jadual dah ada dalam page `/debts` dari Fasa 1)*
-- [ ] **8. Switch Personal / Business / Combined** *(separuh: switch Individual/Business dah ada, view Combined belum)*
-  - [ ] Combined: jumlah merentas dua profile, setiap rekod ada label Personal/Business
-  - [ ] Rekod bayaran dalam view Combined kemas kini profile yang betul
+- [x] **5. Upcoming Payments** (tab "Payments" dalam page `/debts`)
+  - [x] Kepada siapa, RM, tarikh tepat, countdown ("Due today", "Due tomorrow", "Due in 2 days", "Overdue by 3 days"), kategori, frequency, status (upcoming/partly paid/paid/overdue/cancelled)
+  - [x] Susun ikut tarikh due terdekat
+  - [x] Filter: semua, hari ni, 7 hari, bulan ni, overdue, paid
+  - [x] Jumlah untuk tempoh dipilih (tidak kira paid dan cancelled; partial kira baki sahaja)
+  - [x] Butang Record payment (hutang) dan Mark paid (bil) terus dari senarai
+  - [x] Unit test untuk countdown, filter dan jumlah
+- [x] **6. Debt Dashboard** (workspace Debt dalam dashboard)
+  - [x] Total outstanding debt
+  - [x] Due bulan ni
+  - [x] Due 7 hari akan datang
+  - [x] Total overdue
+  - [x] Bilangan hutang aktif
+  - [x] Next payment
+  - [x] Available cash selepas commitments (dengan andaian ditulis)
+  - [x] Beza yang jelas antara outstanding debt dan repayment due
+  - [x] Senarai "Up next" guna data hutang dan bil
+  - [x] Unit test untuk semua jumlah
+- [x] **7. Paparan jadual bayaran setiap hutang** (tarikh due, tarikh bayar, amaun, status)
+- [x] **8. Switch Personal / Business / Combined**
+  - [x] Combined: jumlah merentas dua profile, setiap rekod ada label Personal/Business
+  - [x] Rekod bayaran dalam view Combined kemas kini profile yang betul
+
+Nota dari test Fasa 2:
+- Test: 15 unit test baru untuk countdown, filter dan jumlah (38 semua sekali, lulus)
+- Diuji dalam browser pada 10 Okt, semua nombor sama dengan kiraan tangan:
+  - Personal: outstanding RM1,014.80, due bulan ni RM379.60, 7 hari RM235.40, available −RM157.60
+  - Business: RM40,250, RM7,820, RM3,400, available −RM2,439, Unifi "Overdue by 3 days"
+  - Combined: RM41,264.80, RM8,199.60, RM3,635.40, 11 hutang, available −RM2,596.60
+  - Payments "Next 7 days" (Combined) RM7,333.40, 9 bayaran
+- Bayar hutang Personal dari view Combined semasa profile aktif Business: baki betul (RM359.60 → RM269.70)
+- Mark paid bil dengan double-click: satu transaksi sahaja (`markCommitmentPaid` kini hanya rekod sekali)
+- Layout telefon: butang aksi turun ke baris bawah, filter boleh scroll
+- Combined tak disimpan bila reload page; dia balik ke profile aktif
+- Dashboard tab Expenses masih kira bayaran hutang sebagai expense (step 9)
 
 ## Fasa 3: Logik duit
 
 - [ ] **9. Cash flow tanpa double-count**
-  - [ ] Buang double-count dalam `markCommitmentPaid`
+  - [x] Buang double-count dalam `markCommitmentPaid` *(Fasa 2: bil hanya boleh ditanda paid sekali, dan BNPL/loan dah keluar dari `commitments`)*
   - [ ] Transaksi `Debt Repayment` tidak dikira sebagai expense bulanan (hanya `Interest & Fees`)
   - [ ] Principal kurangkan hutang, faedah dan fi direkod sebagai expense
   - [ ] Pembelian yang dah direkod sebagai expense tidak dikira semula

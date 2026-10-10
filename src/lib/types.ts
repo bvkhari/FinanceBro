@@ -194,6 +194,7 @@ export interface DebtInstalment {
 
 export interface Debt {
   id: string;
+  profileId: string;
   mode: AppMode;
   name: string; // provider / creditor / supplier
   debtType: DebtType;

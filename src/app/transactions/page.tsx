@@ -28,21 +28,30 @@ const INDIVIDUAL_CATEGORIES = [
   "Shopping",
   "Education",
   "Entertainment",
+  "Subscriptions",
+  "Rent",
+  "Utilities",
   "Allowance",
   "Salary",
   "Part-time income",
+  "Uncategorised",
   "Other",
 ];
 
 const BUSINESS_CATEGORIES = [
   "Sales Revenue",
+  "Delivery Sales",
   "Service Income",
   "Other Business Income",
+  "Ingredients",
+  "Packaging",
+  "Wages",
   "Supplies",
   "Operating Expenses",
   "Utilities",
   "Rent",
   "Marketing",
+  "Uncategorised",
   "Other",
 ];
 

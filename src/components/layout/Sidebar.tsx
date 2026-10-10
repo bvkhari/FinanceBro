@@ -98,7 +98,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
         {showResetConfirm ? (
           <div className="space-y-2 rounded-xl bg-navy-800/50 p-3">
-            <p className="text-xs text-navy-200">Reset all demo data?</p>
+            <p className="text-xs text-navy-200">Reload data from Supabase?</p>
             <div className="flex gap-2">
               <button
                 onClick={() => {
@@ -107,7 +107,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                 }}
                 className="flex-1 rounded-lg bg-red-500/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
               >
-                Reset
+                Reload
               </button>
               <button
                 onClick={() => setShowResetConfirm(false)}
@@ -123,7 +123,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-navy-300 hover:bg-navy-800 hover:text-white transition-all"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            Reset Demo Data
+            Reload Data
           </button>
         )}
       </div>

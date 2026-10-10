@@ -36,6 +36,7 @@ export interface Transaction {
   category: string;
   date: string; // ISO date string
   description?: string;
+  flag?: "duplicate" | "unusual";
   createdAt: string;
 }
 
@@ -49,6 +50,8 @@ export interface FinancialCommitment {
   category: string;
   status: PaymentStatus;
   recurring: boolean;
+  instalmentsLeft?: number;
+  outstandingBalance?: number;
   createdAt: string;
   paidTransactionId?: string; // Links to a Transaction if paid
 }

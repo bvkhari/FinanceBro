@@ -80,6 +80,32 @@
   }
 }
 
+/* Reports print on white paper whatever the screen theme is. */
+@media print {
+  :root {
+    color-scheme: light;
+    --canvas: 255 255 255;
+    --surface: 255 255 255;
+    --elevated: 255 255 255;
+    --gray: 120 120 128;
+    --label: 0 0 0;
+    --label-2: 60 60 67;
+    --separator: rgba(60, 60, 67, 0.25);
+    --accent-text: 10 124 114;
+    --positive: 36 140 64;
+    --negative: 215 40 30;
+    --warning: 200 110 0;
+    --tabbar-h: 0px;
+  }
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  @page {
+    margin: 16mm;
+  }
+}
+
 /* ------------------------------------------------------------
    Base
    ------------------------------------------------------------ */

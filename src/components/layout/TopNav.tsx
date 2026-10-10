@@ -34,7 +34,7 @@ export function TopNav() {
 
   return (
     <header
-      className={`material sticky top-0 z-30 transition-shadow duration-200 ${scrolled ? "material-edge-b" : ""}`}
+      className={`material sticky top-0 z-30 print:hidden transition-shadow duration-200 ${scrolled ? "material-edge-b" : ""}`}
     >
       <div className="flex h-[var(--topbar-h)] items-center justify-between gap-3 px-4 sm:px-6">
         <p

@@ -26,7 +26,10 @@ export function TabBar() {
                   isActive ? "text-accent-text" : "text-label-2"
                 }`}
               >
-                <Icon className="h-[22px] w-[22px]" strokeWidth={isActive ? 2.25 : 1.9} />
+                <Icon
+                  className={`h-[22px] w-[22px] ${item.href === "/financebro-ai" ? "sparkle-twinkle" : ""}`}
+                  strokeWidth={isActive ? 2.25 : 1.9}
+                />
                 <span className="text-[0.625rem] font-medium tracking-[0.01em]">{item.label}</span>
               </Link>
             </li>

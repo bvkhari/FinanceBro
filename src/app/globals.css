@@ -224,6 +224,52 @@ body {
   animation: fade 240ms ease-out both;
 }
 
+/* FinanceBro AI tab icon, always moving: the big star breathes and sways
+   while the small sparkles flicker in turn. Paths follow lucide's
+   Sparkles: 1 = star, 2–3 = top-right plus, 4–5 = bottom-left plus. */
+.sparkle-twinkle path {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.sparkle-twinkle path:nth-child(1) {
+  animation: sparkleStar 2.4s ease-in-out infinite;
+}
+.sparkle-twinkle path:nth-child(2),
+.sparkle-twinkle path:nth-child(3) {
+  animation: sparkleDot 1.2s ease-in-out infinite;
+}
+.sparkle-twinkle path:nth-child(4),
+.sparkle-twinkle path:nth-child(5) {
+  animation: sparkleDot 1.2s ease-in-out infinite;
+  animation-delay: -0.6s; /* half a beat behind the top-right one */
+}
+@keyframes sparkleStar {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  25% {
+    transform: scale(1.1) rotate(9deg);
+  }
+  50% {
+    transform: scale(1) rotate(0deg);
+  }
+  75% {
+    transform: scale(0.93) rotate(-7deg);
+  }
+}
+@keyframes sparkleDot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  50% {
+    opacity: 0.2;
+    transform: scale(0.35);
+  }
+}
+
 /* Typing indicator dots */
 @keyframes typingDot {
   0%,
@@ -275,6 +321,9 @@ input[type="date"] {
   .press:active:not(:disabled) {
     transform: none;
     opacity: 0.7;
+  }
+  .sparkle-twinkle path {
+    animation: none !important;
   }
   [data-motion="slide"] {
     transition-property: opacity !important;

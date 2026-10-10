@@ -2,8 +2,8 @@ import { LayoutGrid, Sparkles, ArrowLeftRight, CreditCard, FileText } from "luci
 
 export const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutGrid },
-  { href: "/financebro-ai", label: "FinanceBro AI", icon: Sparkles },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { href: "/financebro-ai", label: "FinanceBro AI", icon: Sparkles },
   { href: "/payments", label: "Payments", icon: CreditCard },
   { href: "/reports", label: "Reports", icon: FileText },
 ] as const;

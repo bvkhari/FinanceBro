@@ -165,9 +165,12 @@ Pendekatan: bina yang paling sikit. Banyak item dah ada dari fasa lepas.
 - [x] **13. Report dan export**
   - [x] Ringkasan outstanding ikut kategori (provider = senarai hutang sedia ada)
   - [x] Export CSV bayaran ikut filter semasa (tempoh, upcoming, overdue, paid) dan export CSV hutang (Blob browser, tiada library)
-  - Ditangguh: carta sejarah baki hutang. Data dah ada dalam `debt_payments`; bina bila diminta
+  - [x] Carta sejarah baki hutang dalam setiap kad hutang
+    - [x] Baki dikira dari `debt_payments`: baki sekarang + principal yang dah dibayar, kemudian turun ikut setiap bayaran (faedah tak kurangkan baki)
+    - [x] Hutang tanpa bayaran yang direkod: tiada carta, tiada sejarah yang direka
+    - [x] Unit test
   - Diuji dalam browser: Business "Owed by type" (loan RM18,400 · equipment RM16,100 · supplier RM3,400 · kad RM2,350 = RM40,250). CSV hutang dan CSV bayaran filter Overdue (Unifi RM199) betul. Satu unit test untuk escaping CSV
-
+    - Diuji dalam browser: SPayLater phone RM539.40 → RM359.60 (3 titik), Hong Leong RM27,600 → RM16,100 (11 titik), SME loan tiada carta (tiada bayaran direkod)
 - [x] **14. Debt Agent** (chat `/financebro-ai`)
   - [x] Function tulen `answerDebtQuestion()`: semua nombor dari function sedia ada (`payments.ts`, `cashflow.ts`), bukan LLM
   - [x] Jawab 9 soalan contoh spec, termasuk hutang supplier business (guna data dua profile)

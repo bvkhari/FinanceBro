@@ -17,7 +17,7 @@ import { Input, Select, TextArea } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
-import { formatDate, formatRM, todayISO } from "@/lib/utils";
+import { formatDate, formatDateShort, formatRM, todayISO } from "@/lib/utils";
 import { Debt, DebtInstalment, DebtType } from "@/lib/types";
 import {
   DEBT_TYPE_LABELS,
@@ -33,7 +33,8 @@ import { EditInstalmentModal, ExtendScheduleModal, RescheduleModal } from "@/com
 import { ScheduleDraft, ScheduleEditor, draftRepayment, emptyDraft, previewSchedule } from "@/components/debt/ScheduleEditor";
 import { spendingCategories } from "@/lib/categories";
 import { downloadCsv } from "@/lib/csv";
-import { PAYMENT_FILTERS, PaymentFilter, PaymentItem, countdown, extraPaymentScenario, filterPayments, payoffSummary, totalDue, totalPaid } from "@/lib/debt/payments";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { PAYMENT_FILTERS, PaymentFilter, PaymentItem, balanceHistory, countdown, extraPaymentScenario, filterPayments, payoffSummary, totalDue, totalPaid } from "@/lib/debt/payments";
 import { toCents } from "@/lib/debt/schedule";
 
 type View = "active" | "paid_off" | "all";
@@ -486,9 +487,42 @@ function DebtCard({
               </tbody>
             </table>
           </div>
+          <BalanceHistory debt={debt} />
           {active && debt.outstandingBalance > 0 && <ExtraPayment debt={debt} />}
         </div>
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Balance over time, from recorded payments only
+// ------------------------------------------------------------
+
+function BalanceHistory({ debt }: { debt: Debt }) {
+  const points = balanceHistory(debt);
+  if (points.length < 2) return null;
+  const tick = { fontSize: 11, fill: "rgb(var(--label-2) / 0.62)" };
+  return (
+    <div className="mt-3">
+      <p className="mb-1 px-1 text-caption font-semibold uppercase tracking-wide text-label-3">
+        Balance history · {points.length - 1} payment date{points.length === 2 ? "" : "s"}
+      </p>
+      <div className="h-36" role="img" aria-label={`Balance went from ${formatRM(points[0].balance)} to ${formatRM(points[points.length - 1].balance)}`}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={points} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="var(--separator)" vertical={false} />
+            <XAxis dataKey="date" tick={tick} axisLine={false} tickLine={false} tickFormatter={formatDateShort} minTickGap={24} />
+            <YAxis tick={tick} axisLine={false} tickLine={false} width={48} domain={[0, "auto"]} tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
+            <Tooltip
+              formatter={(v: number) => [formatRM(v), "Owed"]}
+              labelFormatter={(d: string) => formatDate(d)}
+              contentStyle={{ background: "rgb(var(--elevated))", border: "none", borderRadius: 12, boxShadow: "var(--shadow-float)", fontSize: 12 }}
+            />
+            <Line type="stepAfter" dataKey="balance" stroke="rgb(var(--accent))" strokeWidth={2} dot={{ r: 2.5 }} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }

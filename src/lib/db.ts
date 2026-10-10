@@ -89,6 +89,7 @@ interface DebtRow {
   is_sample: boolean;
   created_at: string;
   debt_instalments: InstalmentRow[];
+  debt_payments: { paid_date: string; principal_amount: string }[];
 }
 
 export interface ProfileData {
@@ -219,6 +220,9 @@ function mapDebt(r: DebtRow, mode: AppMode, today: string): Debt {
     createdAt: r.created_at,
     instalments,
     nextInstalment: instalments.find((i) => i.remaining > 0),
+    payments: r.debt_payments
+      .map((p) => ({ date: p.paid_date, principal: Number(p.principal_amount) }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
     unscheduledBalance:
       r.status === "active"
         ? Math.max(0, cents(Number(r.outstanding_balance)) - instalments.reduce((s, i) => s + cents(i.remaining), 0)) / 100
@@ -243,7 +247,7 @@ export async function fetchProfileData(mode: AppMode): Promise<ProfileData> {
       .order("txn_date", { ascending: false }).order("created_at", { ascending: false }),
     supabase.from("commitments").select("*").eq("profile_id", p.id).order("due_date"),
     supabase.from("budgets").select("month, limit_amount").eq("profile_id", p.id).order("month", { ascending: false }),
-    supabase.from("debts").select("*, debt_instalments(*)").eq("profile_id", p.id).order("created_at"),
+    supabase.from("debts").select("*, debt_instalments(*), debt_payments(paid_date, principal_amount)").eq("profile_id", p.id).order("created_at"),
     supabase.from("income_schedule").select("id, source, expected_amount, expected_date, confirmed").eq("profile_id", p.id).order("expected_date"),
   ]).then((rs) => rs.map(check));
 

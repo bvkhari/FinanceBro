@@ -254,3 +254,24 @@ export function payoffSummary(s: ExtraPaymentScenario, fmt: (date: string) => st
   if (n === 0) return `Not enough to clear a whole instalment; the last one (${fmt(s.payoffBefore!)}) gets smaller.`;
   return `Finish ${n} instalment${n === 1 ? "" : "s"} sooner: last payment ${fmt(s.payoffAfter!)} instead of ${fmt(s.payoffBefore!)}.`;
 }
+
+/**
+ * Balance after each recorded payment, oldest first. It starts from the
+ * balance before the first recorded payment (today's balance + principal
+ * repaid), so repayments made before the app tracked them aren't invented.
+ * Empty when no payment has been recorded.
+ */
+export function balanceHistory(debt: Debt): { date: string; balance: number }[] {
+  if (!debt.payments.length) return [];
+  let bal = cents(debt.outstandingBalance) + debt.payments.reduce((s, p) => s + cents(p.principal), 0);
+  const first = debt.payments[0].date;
+  const points = [{ date: debt.startDate && debt.startDate < first ? debt.startDate : first, balance: bal / 100 }];
+  for (const p of debt.payments) {
+    bal -= cents(p.principal);
+    const last = points[points.length - 1];
+    // Several payments on one day become one step.
+    if (last.date === p.date && points.length > 1) last.balance = bal / 100;
+    else points.push({ date: p.date, balance: bal / 100 });
+  }
+  return points;
+}

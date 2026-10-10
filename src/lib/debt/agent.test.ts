@@ -15,7 +15,7 @@ function debt(id: string, name: string, debtType: Debt["debtType"], instalments:
   return {
     id, profileId: "p", mode: "individual", name, debtType, originalAmount: owed, outstandingBalance: owed,
     frequency: "monthly", status: "active", isSample: true, createdAt: "", instalments,
-    nextInstalment: instalments[0], unscheduledBalance: 0, ...extra,
+    nextInstalment: instalments[0], unscheduledBalance: 0, payments: [], ...extra,
   };
 }
 

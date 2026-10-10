@@ -216,6 +216,8 @@ export interface Debt {
   nextInstalment?: DebtInstalment; // earliest unpaid, not cancelled
   /** Part of the outstanding balance with no unpaid instalment covering it (0 when fully scheduled). */
   unscheduledBalance: number;
+  /** Recorded payments, oldest first. Only the principal reduces the balance. */
+  payments: { date: string; principal: number }[];
 }
 
 /** Fields the user enters when adding a debt (the schedule is passed separately). */

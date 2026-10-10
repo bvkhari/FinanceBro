@@ -12,6 +12,7 @@ import {
   totalPaid,
   extraPaymentScenario,
   payoffSummary,
+  balanceHistory,
 } from "./payments";
 
 const TODAY = "2026-10-10";
@@ -46,6 +47,7 @@ function debt(id: string, name: string, outstanding: number, instalments: DebtIn
     instalments: instalments.map((i) => ({ ...i, debtId: id })),
     nextInstalment: instalments.find((i) => i.remaining > 0),
     unscheduledBalance: 0,
+    payments: [],
     ...extra,
   };
 }
@@ -227,5 +229,30 @@ describe("extraPaymentScenario", () => {
 
   it("caps the extra at what is owed", () => {
     expect(extraPaymentScenario(loan, 999, TODAY)).toMatchObject({ extra: 400, outstandingAfter: 0, instalmentsAfter: 0, payoffAfter: undefined });
+  });
+});
+
+describe("balanceHistory", () => {
+  const base = debt("h", "Phone", 359.6, [], { startDate: "2026-07-12" });
+
+  it("steps down by the principal of each payment, from the balance before the first one", () => {
+    const d = { ...base, payments: [{ date: "2026-08-12", principal: 89.9 }, { date: "2026-09-12", principal: 89.9 }] };
+    expect(balanceHistory(d)).toEqual([
+      { date: "2026-07-12", balance: 539.4 },
+      { date: "2026-08-12", balance: 449.5 },
+      { date: "2026-09-12", balance: 359.6 },
+    ]);
+  });
+
+  it("merges payments made on the same day", () => {
+    const d = { ...base, outstandingBalance: 200, startDate: undefined, payments: [{ date: "2026-10-01", principal: 40 }, { date: "2026-10-01", principal: 60 }] };
+    expect(balanceHistory(d)).toEqual([
+      { date: "2026-10-01", balance: 300 },
+      { date: "2026-10-01", balance: 200 },
+    ]);
+  });
+
+  it("has no history to show without recorded payments", () => {
+    expect(balanceHistory(base)).toEqual([]);
   });
 });

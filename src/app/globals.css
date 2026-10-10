@@ -2,131 +2,263 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-
+/* ------------------------------------------------------------
+   Tokens — Apple system colors, light & dark
+   ------------------------------------------------------------ */
 :root {
-  --foreground: #142340;
-  --background: #f8fafc;
-  --card: #ffffff;
-  --border: #e2e8f0;
+  color-scheme: light dark;
+
+  --canvas: 242 242 247;
+  --surface: 255 255 255;
+  --elevated: 255 255 255;
+  --gray: 120 120 128;
+  --label: 0 0 0;
+  --label-2: 60 60 67;
+  --separator: rgba(60, 60, 67, 0.16);
+
+  --accent: 10 124 114;
+  --accent-text: 10 124 114;
+  --positive: 36 160 72;
+  --negative: 255 59 48;
+  --warning: 255 149 0;
+  --info: 0 122 255;
+
+  --material: rgba(249, 249, 251, 0.72);
+  --material-edge: rgba(255, 255, 255, 0.6);
+  --scrim: rgba(0, 0, 0, 0.32);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-float: 0 12px 40px -8px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.06);
+
+  /* Critically damped spring (damping 1.0, response 0.35s) */
+  --ease-spring: cubic-bezier(0.25, 1, 0.4, 1);
+  /* Under-damped spring (damping 0.8, response 0.4s) — only after momentum */
+  --ease-spring-bounce: cubic-bezier(0.3, 1.25, 0.5, 1);
+  --spring-duration: 500ms;
+
+  --topbar-h: 3.5rem;
+  --tabbar-h: calc(3.25rem + env(safe-area-inset-bottom));
 }
 
-* {
-  box-sizing: border-box;
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: linear(0, 0.058, 0.181, 0.321, 0.456, 0.574, 0.672, 0.751, 0.813, 0.861, 0.897, 0.924, 0.945, 0.96, 0.971, 0.979, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 1);
+    --ease-spring-bounce: linear(0, 0.031, 0.107, 0.208, 0.32, 0.432, 0.538, 0.633, 0.717, 0.788, 0.846, 0.893, 0.93, 0.958, 0.979, 0.994, 1.004, 1.01, 1.013, 1.015, 1.015, 1.014, 1.013, 1.011, 1.01, 1.008, 1.006, 1.005, 1.004, 1.003, 1);
+  }
 }
 
-html,
+@media (min-width: 1024px) {
+  :root {
+    --tabbar-h: 0px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: 0 0 0;
+    --surface: 28 28 30;
+    --elevated: 44 44 46;
+    --gray: 142 142 147;
+    --label: 255 255 255;
+    --label-2: 235 235 245;
+    --separator: rgba(84, 84, 88, 0.55);
+
+    --accent: 18 148 135;
+    --accent-text: 64 214 194;
+    --positive: 48 209 88;
+    --negative: 255 69 58;
+    --warning: 255 159 10;
+    --info: 10 132 255;
+
+    --material: rgba(28, 28, 30, 0.72);
+    --material-edge: rgba(255, 255, 255, 0.08);
+    --scrim: rgba(0, 0, 0, 0.5);
+
+    --shadow-card: 0 0 0 transparent;
+    --shadow-float: 0 16px 48px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+}
+
+/* ------------------------------------------------------------
+   Base
+   ------------------------------------------------------------ */
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
+  @apply bg-canvas font-sans text-body text-label;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  overflow-x: hidden;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-/* Smooth transitions */
-.transition-all-smooth {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Card hover effect */
-.card-hover {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.card-hover:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px -5px rgba(20, 35, 64, 0.08), 0 4px 10px -6px rgba(20, 35, 64, 0.05);
-}
-
-/* Gradient text */
-.gradient-text {
-  background: linear-gradient(135deg, #1e3251 0%, #0d9488 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* Glassmorphism effect */
-.glass {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-/* Agent step animation */
-.agent-step-enter {
-  animation: slideUp 0.3s ease-out;
-}
-
-@keyframes slideUp {
-  0% {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Typing indicator dots */
-.typing-dot {
-  animation: typingDot 1.4s infinite ease-in-out;
-}
-
-.typing-dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.typing-dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes typingDot {
-  0%, 60%, 100% {
-    transform: translateY(0);
-    opacity: 0.4;
-  }
-  30% {
-    transform: translateY(-6px);
-    opacity: 1;
-  }
-}
-
-/* Focus ring */
-.focus-ring:focus-visible {
-  outline: 2px solid #0d9488;
+:focus-visible {
+  outline: 3px solid rgb(var(--accent) / 0.5);
   outline-offset: 2px;
 }
 
-/* Sidebar item active gradient */
-.sidebar-active {
-  background: linear-gradient(90deg, rgba(13, 148, 136, 0.08) 0%, rgba(13, 148, 136, 0.02) 100%);
-  border-left: 3px solid #0d9488;
+::selection {
+  background: rgb(var(--accent) / 0.22);
+}
+
+/* ------------------------------------------------------------
+   Materials — translucent chrome; content scrolls underneath
+   ------------------------------------------------------------ */
+.material {
+  background: var(--material);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+/* Hairline that reads as light catching the edge of the material */
+.material-edge-b {
+  box-shadow: inset 0 -0.5px 0 var(--separator);
+}
+.material-edge-t {
+  box-shadow: inset 0 0.5px 0 var(--separator);
+}
+
+/* ------------------------------------------------------------
+   Press feedback — instant on pointer-down, spring back on release
+   ------------------------------------------------------------ */
+.press {
+  transition: transform var(--spring-duration) var(--ease-spring), background-color 160ms ease, opacity 160ms ease;
+}
+.press:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 80ms;
+}
+
+/* Row highlight on press, like a table cell */
+.row-press {
+  transition: background-color 220ms ease;
+}
+.row-press:active {
+  background-color: rgb(var(--gray) / 0.16);
+  transition-duration: 0ms;
+}
+@media (hover: hover) {
+  .row-press:hover {
+    background-color: rgb(var(--gray) / 0.07);
+  }
+}
+
+/* Inset-grouped list: hairline separators inset from the leading edge */
+.grouped > * + * {
+  box-shadow: inset 0 0.5px 0 var(--separator);
+}
+.grouped-inset > * {
+  position: relative;
+}
+.grouped-inset > * + *::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--inset, 3.75rem);
+  height: 0.5px;
+  background: var(--separator);
+}
+
+/* ------------------------------------------------------------
+   Enter motion — content materializes in place (short + subtle)
+   ------------------------------------------------------------ */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+.animate-rise {
+  animation: rise 420ms var(--ease-spring) both;
+}
+.animate-fade {
+  animation: fade 240ms ease-out both;
+}
+
+/* Typing indicator dots */
+@keyframes typingDot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+.typing-dot {
+  animation: typingDot 1.2s infinite ease-in-out;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* Hide scrollbars on horizontal chip rows while keeping them scrollable */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Native form controls pick up the accent */
+input[type="checkbox"],
+input[type="date"] {
+  accent-color: rgb(var(--accent));
+}
+
+/* ------------------------------------------------------------
+   Accessibility — gentler equivalents, never no feedback
+   ------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .press:active:not(:disabled) {
+    transform: none;
+    opacity: 0.7;
+  }
+  [data-motion="slide"] {
+    transition-property: opacity !important;
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .material {
+    background: rgb(var(--surface));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --separator: rgba(60, 60, 67, 0.5);
+  }
+  .material {
+    background: rgb(var(--surface));
+  }
 }

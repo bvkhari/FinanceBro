@@ -423,22 +423,22 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   if (!current) {
     return (
       <FinanceContext.Provider value={value}>
-        <div className="flex h-screen items-center justify-center bg-slate-50">
+        <div className="flex h-screen items-center justify-center bg-canvas px-6">
           {error ? (
             <div className="flex max-w-md flex-col items-center gap-3 text-center">
-              <p className="text-sm font-semibold text-rose-600">Couldn&apos;t load data from Supabase</p>
-              <p className="text-xs text-slate-500">{error}</p>
+              <p className="text-headline text-label">Couldn&apos;t load your data</p>
+              <p className="text-subhead text-label-2">{error}</p>
               <button
                 onClick={reloadAll}
-                className="rounded-lg bg-navy-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-navy-700"
+                className="press mt-1 h-9 rounded-full bg-accent px-4 text-subhead font-semibold text-white"
               >
                 Try again
               </button>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-3">
-              <div className="h-10 w-10 animate-spin rounded-full border-4 border-navy-200 border-t-navy-800" />
-              <p className="text-sm text-slate-500">Loading FinanceBro AI...</p>
+              <div className="h-6 w-6 animate-spin rounded-full border-[2.5px] border-gray/20 border-t-label-2" />
+              <p className="text-subhead text-label-2">Loading</p>
             </div>
           )}
         </div>

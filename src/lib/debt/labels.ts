@@ -38,9 +38,9 @@ export const FREQUENCY_LABELS: Record<DebtFrequency, string> = {
 };
 
 export const INSTALMENT_STATUS_STYLE: Record<InstalmentStatus, { label: string; className: string }> = {
-  upcoming: { label: "Upcoming", className: "bg-amber-50 text-amber-700" },
-  partial: { label: "Partly paid", className: "bg-sky-50 text-sky-700" },
-  paid: { label: "Paid", className: "bg-emerald-50 text-emerald-700" },
-  overdue: { label: "Overdue", className: "bg-rose-50 text-rose-700" },
-  cancelled: { label: "Cancelled", className: "bg-slate-100 text-slate-500" },
+  upcoming: { label: "Upcoming", className: "bg-warning/12 text-warning" },
+  partial: { label: "Partly paid", className: "bg-info/12 text-info" },
+  paid: { label: "Paid", className: "bg-positive/12 text-positive" },
+  overdue: { label: "Overdue", className: "bg-negative/12 text-negative" },
+  cancelled: { label: "Cancelled", className: "bg-gray/12 text-label-2" },
 };

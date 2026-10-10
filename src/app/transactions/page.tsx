@@ -6,21 +6,10 @@ import { Transaction, TransactionType } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input, Select, TextArea } from "@/components/ui/Input";
+import { Segmented } from "@/components/ui/Segmented";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { formatRM, formatDateShort, todayISO } from "@/lib/utils";
-import {
-  Plus,
-  Search,
-  TrendingUp,
-  TrendingDown,
-  Pencil,
-  Trash2,
-  Filter,
-  X,
-  ArrowUpDown,
-  Receipt,
-  Wallet,
-  Tag,
-} from "lucide-react";
+import { Plus, Search, TrendingUp, TrendingDown, X, ChevronRight, ChevronDown, Trash2 } from "lucide-react";
 
 const INDIVIDUAL_CATEGORIES = [
   "Food",
@@ -55,19 +44,22 @@ const BUSINESS_CATEGORIES = [
   "Other",
 ];
 
+type Sort = "date-desc" | "date-asc" | "amount-desc" | "amount-asc";
+
 export default function TransactionsPage() {
   const { mode, transactions, addTransaction, updateTransaction, deleteTransaction } = useFinance();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
-  const [filterType, setFilterType] = useState("");
-  const [sortBy, setSortBy] = useState<"date-desc" | "date-asc" | "amount-desc" | "amount-asc">("date-desc");
+  const [filterType, setFilterType] = useState<"" | TransactionType>("");
+  const [sortBy, setSortBy] = useState<Sort>("date-desc");
 
   const categories = mode === "individual" ? INDIVIDUAL_CATEGORIES : BUSINESS_CATEGORIES;
 
   const totalIncome = transactions.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const totalExpenses = transactions.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const net = totalIncome - totalExpenses;
 
   const filteredTransactions = useMemo(() => {
     let result = [...transactions];
@@ -121,260 +113,156 @@ export default function TransactionsPage() {
     setFilterType("");
   };
 
+  const openNew = () => {
+    setEditingId(null);
+    setShowAddModal(true);
+  };
+
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8 animate-fade-in">
-      {/* Summary Cards */}
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="card-hover rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-emerald-700">Total Income</p>
-              <p className="mt-1 text-2xl font-extrabold text-emerald-900">{formatRM(totalIncome)}</p>
-            </div>
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100">
-              <TrendingUp className="h-5 w-5 text-emerald-600" />
-            </div>
-          </div>
-        </div>
+    <div className="mx-auto max-w-4xl px-4 pb-10 pt-2 sm:px-6 lg:px-8">
+      <PageHeader
+        title="Transactions"
+        subtitle={`${transactions.length} ${mode === "individual" ? "personal" : "business"} records`}
+        accessory={
+          <Button onClick={openNew} icon={<Plus className="h-4 w-4" strokeWidth={2.5} />} className="max-sm:w-full">
+            Add transaction
+          </Button>
+        }
+      />
 
-        <div className="card-hover rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-rose-700">Total Expenses</p>
-              <p className="mt-1 text-2xl font-extrabold text-rose-900">{formatRM(totalExpenses)}</p>
-            </div>
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-100">
-              <TrendingDown className="h-5 w-5 text-rose-600" />
-            </div>
+      {/* Totals: one grouped surface, three columns */}
+      <div className="mb-8 grid grid-cols-3 divide-x divide-[color:var(--separator)] rounded-2xl bg-surface py-4 shadow-card">
+        {[
+          { label: "Income", value: totalIncome, cls: "text-positive" },
+          { label: "Expenses", value: totalExpenses, cls: "text-label" },
+          { label: "Net", value: net, cls: net >= 0 ? "text-label" : "text-negative" },
+        ].map((s) => (
+          <div key={s.label} className="px-3 text-center sm:px-5 sm:text-left">
+            <p className="text-footnote text-label-2">{s.label}</p>
+            <p className={`tabular mt-1 whitespace-nowrap text-subhead font-semibold sm:text-title3 ${s.cls}`}>{formatRM(s.value)}</p>
           </div>
-        </div>
-
-        <div className="card-hover rounded-2xl border border-navy-200 bg-gradient-to-br from-navy-800 to-navy-950 p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-white/70">Net Balance</p>
-              <p className={`mt-1 text-2xl font-extrabold ${totalIncome - totalExpenses >= 0 ? "text-teal-300" : "text-rose-300"}`}>
-                {formatRM(totalIncome - totalExpenses)}
-              </p>
-            </div>
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10">
-              <Wallet className="h-5 w-5 text-teal-300" />
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Action Bar */}
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <h2 className="text-lg font-bold text-navy-900">
-          All Transactions
-          <span className="ml-2 text-sm font-normal text-slate-400">
-            ({filteredTransactions.length} {filteredTransactions.length === 1 ? "item" : "items"})
-          </span>
-        </h2>
-        <Button onClick={() => { setEditingId(null); setShowAddModal(true); }} icon={<Plus className="h-4 w-4" />}>
-          Add Transaction
-        </Button>
-      </div>
-
-      {/* Filters */}
-      <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      {/* Search + filters */}
+      <div className="mb-3 space-y-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-label-3" />
           <input
-            type="text"
+            type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search transactions..."
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-navy-900 placeholder:text-slate-400 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 transition-all"
+            placeholder="Search"
+            aria-label="Search transactions"
+            className="h-10 w-full rounded-xl bg-gray/12 pl-9 pr-9 text-body text-label outline-none placeholder:text-label-3 focus:shadow-[0_0_0_3px_rgb(var(--accent)/0.35)] [&::-webkit-search-cancel-button]:hidden"
           />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-gray/40 text-surface"
+              aria-label="Clear search"
+            >
+              <X className="h-3 w-3" strokeWidth={3} />
+            </button>
+          )}
         </div>
 
-        <div className="flex gap-2">
-          <select
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmented
+            aria-label="Type"
+            size="sm"
+            className="w-full sm:w-64"
+            value={filterType || "all"}
+            onChange={(v) => setFilterType(v === "all" ? "" : v)}
+            options={[
+              { value: "all", label: "All" },
+              { value: "income", label: "Income" },
+              { value: "expense", label: "Expenses" },
+            ]}
+          />
+          <PillSelect
+            label="Category"
             value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-navy-900 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-          >
-            <option value="">All Categories</option>
-            {availableCategories.map((cat) => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
-
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-navy-900 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-          >
-            <option value="">All Types</option>
-            <option value="income">Income</option>
-            <option value="expense">Expense</option>
-          </select>
-
-          <select
+            onChange={setFilterCategory}
+            options={[{ value: "", label: "All categories" }, ...availableCategories.map((c) => ({ value: c, label: c }))]}
+          />
+          <PillSelect
+            label="Sort"
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-navy-900 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-          >
-            <option value="date-desc">Newest First</option>
-            <option value="date-asc">Oldest First</option>
-            <option value="amount-desc">Highest Amount</option>
-            <option value="amount-asc">Lowest Amount</option>
-          </select>
-
+            onChange={(v) => setSortBy(v as Sort)}
+            options={[
+              { value: "date-desc", label: "Newest first" },
+              { value: "date-asc", label: "Oldest first" },
+              { value: "amount-desc", label: "Largest first" },
+              { value: "amount-asc", label: "Smallest first" },
+            ]}
+          />
           {hasFilters && (
-            <button
-              onClick={clearFilters}
-              className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-50"
-            >
-              <X className="h-4 w-4" />
-              Clear
+            <button onClick={clearFilters} className="press h-7 rounded-full px-2 text-footnote font-medium text-accent-text">
+              Clear filters
             </button>
           )}
         </div>
       </div>
 
-      {/* Transaction Table */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        {/* Desktop table */}
-        <div className="hidden overflow-x-auto md:block">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50">
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">Transaction</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">Category</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">Date</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">Type</th>
-                <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500">Amount</th>
-                <th className="px-5 py-3 text-center text-xs font-semibold text-slate-500">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filteredTransactions.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    <Receipt className="mx-auto mb-2 h-8 w-8 text-slate-300" />
-                    No transactions found
-                  </td>
-                </tr>
-              ) : (
-                filteredTransactions.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50/50 transition-all">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                          t.type === "income" ? "bg-emerald-100" : "bg-rose-100"
-                        }`}>
-                          {t.type === "income" ? (
-                            <TrendingUp className="h-4 w-4 text-emerald-600" />
-                          ) : (
-                            <TrendingDown className="h-4 w-4 text-rose-600" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-navy-900">{t.name}</p>
-                          {t.description && (
-                            <p className="text-xs text-slate-400 truncate max-w-[200px]">{t.description}</p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3">
-                      <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-                        {t.category}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-slate-500">{formatDateShort(t.date)}</td>
-                    <td className="px-5 py-3">
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        t.type === "income"
-                          ? "bg-emerald-50 text-emerald-600"
-                          : "bg-rose-50 text-rose-600"
-                      }`}>
-                        {t.type === "income" ? "Income" : "Expense"}
-                      </span>
-                    </td>
-                    <td className={`px-5 py-3 text-right font-bold ${t.type === "income" ? "text-emerald-600" : "text-rose-600"}`}>
-                      {t.type === "income" ? "+" : "-"}{formatRM(t.amount)}
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => { setEditingId(t.id); setShowAddModal(true); }}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-navy-700"
-                          aria-label="Edit"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteTransaction(t.id)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                          aria-label="Delete"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      <p className="mb-2 px-1 text-footnote text-label-2">
+        {filteredTransactions.length} {filteredTransactions.length === 1 ? "result" : "results"}
+      </p>
 
-        {/* Mobile cards */}
-        <div className="divide-y divide-slate-50 md:hidden">
-          {filteredTransactions.length === 0 ? (
-            <div className="py-12 text-center text-slate-400">
-              <Receipt className="mx-auto mb-2 h-8 w-8 text-slate-300" />
-              No transactions found
-            </div>
-          ) : (
-            filteredTransactions.map((t) => (
-              <div key={t.id} className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                    t.type === "income" ? "bg-emerald-100" : "bg-rose-100"
-                  }`}>
-                    {t.type === "income" ? (
-                      <TrendingUp className="h-5 w-5 text-emerald-600" />
-                    ) : (
-                      <TrendingDown className="h-5 w-5 text-rose-600" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-navy-900 truncate">{t.name}</p>
-                    <p className="text-xs text-slate-400">{t.category} · {formatDateShort(t.date)}</p>
-                  </div>
-                  <p className={`font-bold ${t.type === "income" ? "text-emerald-600" : "text-rose-600"}`}>
-                    {t.type === "income" ? "+" : "-"}{formatRM(t.amount)}
-                  </p>
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <button
-                    onClick={() => { setEditingId(t.id); setShowAddModal(true); }}
-                    className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-slate-200 py-1.5 text-xs font-medium text-navy-700"
+      <div className="overflow-hidden rounded-2xl bg-surface shadow-card">
+        {filteredTransactions.length === 0 ? (
+          <div className="px-6 py-14 text-center">
+            <p className="text-headline">No transactions</p>
+            <p className="mt-1 text-subhead text-label-2">
+              {hasFilters ? "Nothing matches these filters." : "Add your first one to start tracking."}
+            </p>
+            <Button variant="ghost" size="sm" className="mt-3" onClick={hasFilters ? clearFilters : openNew}>
+              {hasFilters ? "Clear filters" : "Add transaction"}
+            </Button>
+          </div>
+        ) : (
+          <ul className="grouped-inset" style={{ ["--inset" as string]: "3.75rem" }}>
+            {filteredTransactions.map((t) => (
+              <li key={t.id}>
+                <button
+                  onClick={() => {
+                    setEditingId(t.id);
+                    setShowAddModal(true);
+                  }}
+                  className="row-press flex w-full items-center gap-3 px-4 py-3 text-left"
+                >
+                  <span
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                      t.type === "income" ? "bg-positive/12 text-positive" : "bg-negative/12 text-negative"
+                    }`}
                   >
-                    <Pencil className="h-3.5 w-3.5" /> Edit
-                  </button>
-                  <button
-                    onClick={() => deleteTransaction(t.id)}
-                    className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-slate-200 py-1.5 text-xs font-medium text-rose-600"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> Delete
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+                    {t.type === "income" ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-body text-label">{t.name}</span>
+                    <span className="block truncate text-footnote text-label-2">
+                      {t.category} · {formatDateShort(t.date)}
+                      {t.description ? <span className="hidden md:inline"> · {t.description}</span> : null}
+                    </span>
+                  </span>
+                  <span className={`tabular text-body font-medium ${t.type === "income" ? "text-positive" : "text-label"}`}>
+                    {t.type === "income" ? "+" : "−"}
+                    {formatRM(t.amount)}
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-label-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {/* Add/Edit Modal */}
       <TransactionModal
         isOpen={showAddModal}
-        onClose={() => { setShowAddModal(false); setEditingId(null); }}
+        onClose={() => {
+          setShowAddModal(false);
+          setEditingId(null);
+        }}
         categories={categories}
         editingTransaction={editingId ? transactions.find((t) => t.id === editingId) ?? null : null}
         onSave={(data) => {
@@ -386,8 +274,46 @@ export default function TransactionsPage() {
           setShowAddModal(false);
           setEditingId(null);
         }}
+        onDelete={(id) => {
+          deleteTransaction(id);
+          setShowAddModal(false);
+          setEditingId(null);
+        }}
       />
     </div>
+  );
+}
+
+function PillSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  const active = options.find((o) => o.value === value) ?? options[0];
+  return (
+    <label className="press relative flex h-7 cursor-pointer items-center gap-1 rounded-full bg-gray/12 pl-3 pr-2 text-footnote font-medium text-label">
+      <span className="sr-only">{label}</span>
+      {active.label}
+      <ChevronDown className="h-3.5 w-3.5 text-label-2" />
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute inset-0 cursor-pointer opacity-0"
+        aria-label={label}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -397,9 +323,10 @@ interface TransactionModalProps {
   categories: string[];
   editingTransaction: Transaction | null;
   onSave: (data: Omit<Transaction, "id" | "createdAt" | "mode">) => void;
+  onDelete: (id: string) => void;
 }
 
-function TransactionModal({ isOpen, onClose, categories, editingTransaction, onSave }: TransactionModalProps) {
+function TransactionModal({ isOpen, onClose, categories, editingTransaction, onSave, onDelete }: TransactionModalProps) {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [type, setType] = useState<TransactionType>("expense");
@@ -407,6 +334,7 @@ function TransactionModal({ isOpen, onClose, categories, editingTransaction, onS
   const [date, setDate] = useState(todayISO());
   const [description, setDescription] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (editingTransaction) {
@@ -425,14 +353,15 @@ function TransactionModal({ isOpen, onClose, categories, editingTransaction, onS
       setDescription("");
     }
     setErrors({});
+    setConfirmDelete(false);
   }, [editingTransaction, isOpen]);
 
   const handleSave = () => {
     const newErrors: Record<string, string> = {};
-    if (!name.trim()) newErrors.name = "Name is required";
+    if (!name.trim()) newErrors.name = "Give it a name.";
     const parsedAmount = parseFloat(amount);
     if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
-      newErrors.amount = "Enter a valid amount";
+      newErrors.amount = "Enter an amount above zero.";
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -451,75 +380,96 @@ function TransactionModal({ isOpen, onClose, categories, editingTransaction, onS
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={editingTransaction ? "Edit Transaction" : "Add Transaction"} size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={editingTransaction ? "Edit transaction" : "New transaction"} size="md">
       <div className="space-y-4">
-        {/* Type Toggle */}
-        <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
-          <button
-            onClick={() => setType("expense")}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-semibold transition-all ${
-              type === "expense" ? "bg-rose-500 text-white shadow-sm" : "text-slate-500"
-            }`}
-          >
-            <TrendingDown className="h-4 w-4" /> Expense
-          </button>
-          <button
-            onClick={() => setType("income")}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-semibold transition-all ${
-              type === "income" ? "bg-emerald-500 text-white shadow-sm" : "text-slate-500"
-            }`}
-          >
-            <TrendingUp className="h-4 w-4" /> Income
-          </button>
+        <Segmented
+          aria-label="Type"
+          value={type}
+          onChange={setType}
+          options={[
+            { value: "expense", label: "Expense" },
+            { value: "income", label: "Income" },
+          ]}
+        />
+
+        {/* Amount first: it's the one thing every entry needs */}
+        <div className="rounded-2xl bg-gray/7 px-4 py-3">
+          <label htmlFor="tx-amount" className="text-footnote font-medium text-label-2">Amount</label>
+          <div className="flex items-baseline gap-2">
+            <span className="text-title2 text-label-3">RM</span>
+            <input
+              id="tx-amount"
+              inputMode="decimal"
+              type="number"
+              value={amount}
+              onChange={(e) => {
+                setAmount(e.target.value);
+                if (errors.amount) setErrors((er) => ({ ...er, amount: "" }));
+              }}
+              placeholder="0.00"
+              className={`tabular w-full bg-transparent text-title1 outline-none placeholder:text-label-3 ${
+                type === "income" ? "text-positive" : "text-label"
+              }`}
+            />
+          </div>
+          {errors.amount && <p className="text-footnote text-negative">{errors.amount}</p>}
         </div>
 
         <Input
-          label="Transaction Name"
+          label="Name"
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Grocery Shopping"
+          onChange={(e) => {
+            setName(e.target.value);
+            if (errors.name) setErrors((er) => ({ ...er, name: "" }));
+          }}
+          placeholder="e.g. Groceries at Jaya Grocer"
           error={errors.name}
         />
 
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Amount (RM)"
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.00"
-            error={errors.amount}
-          />
+        <div className="grid grid-cols-2 gap-3">
           <Select
             label="Category"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             options={categories.map((c) => ({ value: c, label: c }))}
           />
+          <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
-
-        <Input
-          label="Date"
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
 
         <TextArea
-          label="Description (Optional)"
+          label="Note"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Add a note..."
+          placeholder="Optional"
         />
 
-        <div className="flex gap-2 pt-2">
-          <Button variant="primary" onClick={handleSave} className="flex-1">
-            {editingTransaction ? "Update" : "Add"} Transaction
-          </Button>
-          <Button variant="outline" onClick={onClose} className="flex-1">
-            Cancel
-          </Button>
-        </div>
+        <Button variant="primary" size="lg" onClick={handleSave} className="w-full">
+          {editingTransaction ? "Save changes" : "Add transaction"}
+        </Button>
+
+        {editingTransaction &&
+          (confirmDelete ? (
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setConfirmDelete(false)} className="flex-1">
+                Keep it
+              </Button>
+              <button
+                onClick={() => onDelete(editingTransaction.id)}
+                className="press h-10 flex-1 rounded-xl bg-negative text-headline text-white"
+              >
+                Delete
+              </button>
+            </div>
+          ) : (
+            <Button
+              variant="danger"
+              onClick={() => setConfirmDelete(true)}
+              icon={<Trash2 className="h-4 w-4" />}
+              className="w-full"
+            >
+              Delete transaction
+            </Button>
+          ))}
       </div>
     </Modal>
   );

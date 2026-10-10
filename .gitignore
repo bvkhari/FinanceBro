@@ -4,5 +4,5 @@ node_modules/
 .vercel
 supabase/.temp/
 .DS_Store
-.next/
+.next*/
 *.tsbuildinfo

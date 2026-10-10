@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
-  CreditCard,
   Info,
   Pencil,
   Plus,
@@ -15,6 +14,8 @@ import { useFinance } from "@/lib/FinanceContext";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, TextArea } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Segmented } from "@/components/ui/Segmented";
 import { formatDate, formatRM, getRelativeTime, todayISO } from "@/lib/utils";
 import { Debt, DebtFrequency, DebtInstalment, DebtType } from "@/lib/types";
 import {
@@ -53,53 +54,45 @@ export default function DebtsPage() {
   );
 
   return (
-    <div className="mx-auto max-w-5xl p-4 sm:p-6 lg:p-8 animate-fade-in">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-extrabold text-navy-900">
-            {mode === "business" ? "Business Debts" : "Personal Debts"}
-          </h1>
-          <p className="text-sm text-slate-500">
-            What you owe, the repayment schedule for each debt, and the payments you have made.
-          </p>
-        </div>
-        <Button icon={<Plus className="h-4 w-4" />} onClick={() => setShowAdd(true)}>
-          Add debt
-        </Button>
-      </div>
+    <div className="mx-auto max-w-4xl px-4 pb-10 pt-2 sm:px-6 lg:px-8">
+      <PageHeader
+        title={mode === "business" ? "Business Debts" : "Personal Debts"}
+        subtitle="What you owe, each repayment schedule, and the payments you've made."
+        accessory={
+          <Button onClick={() => setShowAdd(true)} icon={<Plus className="h-4 w-4" strokeWidth={2.5} />} className="max-sm:w-full">
+            Add debt
+          </Button>
+        }
+      />
 
       {flash && (
-        <div className="mb-4 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" />
+        <div role="status" className="mb-4 flex items-start gap-2 rounded-2xl bg-positive/12 px-4 py-3 text-subhead text-label">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-positive" />
           <span className="flex-1">{flash}</span>
-          <button className="text-xs font-semibold text-emerald-700 hover:underline" onClick={() => setFlash(null)}>
+          <button className="press text-footnote font-semibold text-accent-text" onClick={() => setFlash(null)}>
             Dismiss
           </button>
         </div>
       )}
 
-      <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-1">
-        {(["active", "paid_off", "all"] as View[]).map((v) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-              view === v ? "bg-white text-navy-900 shadow-sm" : "text-slate-500"
-            }`}
-          >
-            {{ active: "Active", paid_off: "Paid off", all: "All" }[v]}
-            <span className="ml-1 text-slate-400">
-              {v === "all" ? debts.length : debts.filter((d) => d.status === v).length}
-            </span>
-          </button>
-        ))}
-      </div>
+      <Segmented
+        aria-label="Filter debts"
+        size="sm"
+        className="mb-4 w-full sm:max-w-[20rem]"
+        value={view}
+        onChange={setView}
+        options={(["active", "paid_off", "all"] as View[]).map((v) => ({
+          value: v,
+          label: `${{ active: "Active", paid_off: "Paid off", all: "All" }[v]} ${
+            v === "all" ? debts.length : debts.filter((d) => d.status === v).length
+          }`,
+        }))}
+      />
 
       {visible.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <CreditCard className="mx-auto h-8 w-8 text-slate-300" />
-          <p className="mt-2 text-sm font-semibold text-navy-900">No debts here</p>
-          <p className="text-xs text-slate-500">Add a debt to track what you owe and when to pay it.</p>
+        <div className="rounded-2xl bg-surface px-6 py-14 text-center shadow-card">
+          <p className="text-headline">{view === "paid_off" ? "Nothing paid off yet" : "No debts here"}</p>
+          <p className="mt-1 text-subhead text-label-2">Add a debt to track what you owe and when to pay it.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -153,67 +146,67 @@ function DebtCard({
   const leftCount = debt.instalments.filter((i) => i.remaining > 0).length;
 
   return (
-    <div className={`rounded-2xl border bg-white ${next?.status === "overdue" ? "border-rose-200" : "border-slate-200"}`}>
-      <button onClick={onToggle} className="flex w-full flex-col gap-3 p-4 text-left sm:flex-row sm:items-center">
+    <div className={`rounded-2xl bg-surface shadow-card ${next?.status === "overdue" ? "ring-1 ring-inset ring-negative/40" : ""}`}>
+      <button onClick={onToggle} className="row-press flex w-full flex-col gap-3 p-4 text-left sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-bold text-navy-900">{debt.name}</h3>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+            <h3 className="text-headline text-label">{debt.name}</h3>
+            <span className="rounded-full bg-gray/12 px-2 py-0.5 text-caption font-medium text-label-2">
               {DEBT_TYPE_LABELS[debt.debtType]}
             </span>
             {debt.status === "paid_off" && (
-              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Paid off</span>
+              <span className="rounded-full bg-positive/12 px-2 py-0.5 text-caption font-semibold text-positive">Paid off</span>
             )}
             {debt.status === "cancelled" && (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">Cancelled</span>
+              <span className="rounded-full bg-gray/12 px-2 py-0.5 text-caption font-semibold text-label-2">Cancelled</span>
             )}
             {debt.isSample && (
               <span
-                className="rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-500"
+                className="rounded-full ring-1 ring-inset ring-[color:var(--separator)] px-2 py-0.5 text-caption font-medium text-label-2"
                 title="Fictional record from the demo seed data"
               >
                 Sample
               </span>
             )}
           </div>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-footnote text-label-2">
             <span>{FREQUENCY_LABELS[debt.frequency].replace(" (enter each payment)", "")}</span>
             {debt.repaymentAmount !== undefined && <span>{formatRM(debt.repaymentAmount)} per instalment</span>}
             {debt.referenceNo && <span>Ref {debt.referenceNo}</span>}
             {debt.interestRate !== undefined && <span>{debt.interestRate}% p.a.</span>}
           </div>
-          <div className="mt-2 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-teal-500" style={{ width: `${paidPct}%` }} />
+          <div className="mt-2 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-gray/12">
+            <div className="h-full rounded-full bg-accent" style={{ width: `${paidPct}%` }} />
           </div>
         </div>
 
         <div className="flex items-center gap-6 sm:text-right">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Outstanding</p>
-            <p className="text-base font-extrabold text-navy-900">{formatRM(debt.outstandingBalance)}</p>
-            <p className="text-[10px] text-slate-400">of {formatRM(debt.originalAmount)}</p>
+            <p className="text-caption font-semibold uppercase tracking-wide text-label-3">Outstanding</p>
+            <p className="tabular text-headline text-label">{formatRM(debt.outstandingBalance)}</p>
+            <p className="text-caption text-label-3">of {formatRM(debt.originalAmount)}</p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Next payment</p>
+            <p className="text-caption font-semibold uppercase tracking-wide text-label-3">Next payment</p>
             {next ? (
               <>
-                <p className="text-sm font-bold text-navy-900">{formatRM(next.remaining)}</p>
-                <p className={`text-[10px] font-semibold ${next.status === "overdue" ? "text-rose-600" : "text-slate-500"}`}>
+                <p className="text-headline text-label">{formatRM(next.remaining)}</p>
+                <p className={`text-caption font-semibold ${next.status === "overdue" ? "text-negative" : "text-label-2"}`}>
                   {formatDate(next.dueDate)} · {getRelativeTime(next.dueDate)}
                 </p>
               </>
             ) : (
-              <p className="text-sm font-semibold text-slate-400">—</p>
+              <p className="text-headline text-label-3">—</p>
             )}
           </div>
-          <ChevronDown className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-4 w-4 flex-shrink-0 text-label-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
         </div>
       </button>
 
       {expanded && (
-        <div className="border-t border-slate-100 px-4 pb-4 pt-3">
+        <div className="border-t border-[color:var(--separator)] px-4 pb-4 pt-3">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-slate-500">
+            <p className="text-footnote text-label-2">
               {paidCount} paid · {leftCount} left
               {debt.startDate && <> · started {formatDate(debt.startDate)}</>}
               {debt.endDate && <> · ends {formatDate(debt.endDate)}</>}
@@ -222,12 +215,12 @@ function DebtCard({
               Edit details
             </Button>
           </div>
-          {debt.notes && <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{debt.notes}</p>}
+          {debt.notes && <p className="mb-3 rounded-xl bg-gray/12 px-3 py-2 text-footnote text-label-2">{debt.notes}</p>}
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-xs">
+            <table className="tabular w-full min-w-[560px] text-footnote">
               <thead>
-                <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
+                <tr className="text-left text-caption uppercase tracking-wide text-label-3">
                   <th className="py-2 pr-3 font-semibold">Instalment</th>
                   <th className="py-2 pr-3 font-semibold">Due date</th>
                   <th className="py-2 pr-3 text-right font-semibold">Amount</th>
@@ -237,26 +230,26 @@ function DebtCard({
                   <th className="py-2" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-[color:var(--separator)]">
                 {debt.instalments.map((i, idx) => {
                   const style = INSTALMENT_STATUS_STYLE[i.status];
                   return (
-                    <tr key={i.id} className="text-navy-900">
+                    <tr key={i.id} className="text-label">
                       <td className="py-2 pr-3 font-medium">
                         {new Date(i.dueDate).toLocaleDateString("en-MY", { month: "long", year: "numeric" })}
-                        <span className="ml-1 text-slate-400">#{idx + 1}</span>
+                        <span className="ml-1 text-label-3">#{idx + 1}</span>
                       </td>
                       <td className="py-2 pr-3">{formatDate(i.dueDate)}</td>
                       <td className="py-2 pr-3 text-right">{formatRM(i.amount)}</td>
                       <td className="py-2 pr-3 text-right">
                         {i.amountPaid > 0 ? formatRM(i.amountPaid) : "—"}
                         {i.status === "partial" && (
-                          <span className="block text-[10px] text-sky-700">{formatRM(i.remaining)} left</span>
+                          <span className="block text-caption text-info">{formatRM(i.remaining)} left</span>
                         )}
                       </td>
                       <td className="py-2 pr-3">{i.paidDate ? formatDate(i.paidDate) : "—"}</td>
                       <td className="py-2 pr-3">
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${style.className}`}>{style.label}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-caption font-semibold ${style.className}`}>{style.label}</span>
                       </td>
                       <td className="py-2 text-right">
                         {i.remaining > 0 && debt.status === "active" && (
@@ -343,13 +336,13 @@ function PaymentModal({
   return (
     <Modal isOpen onClose={onClose} title="Record payment" size="sm">
       <div className="space-y-4">
-        <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
-          <p className="text-sm font-bold text-navy-900">{debt.name}</p>
+        <div className="rounded-xl bg-gray/12 p-3 text-footnote text-label-2">
+          <p className="text-headline text-label">{debt.name}</p>
           <p>
             Instalment due {formatDate(instalment.dueDate)} · {formatRM(instalment.amount)}
             {instalment.amountPaid > 0 && <> · {formatRM(instalment.amountPaid)} already paid</>}
           </p>
-          <p className="mt-1 font-semibold text-navy-900">Still due: {formatRM(instalment.remaining)}</p>
+          <p className="mt-1 font-semibold text-label">Still due: {formatRM(instalment.remaining)}</p>
         </div>
 
         <Input label="Amount paid (RM)" type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
@@ -364,7 +357,7 @@ function PaymentModal({
           onChange={(e) => setInterest(e.target.value)}
         />
 
-        <p className="flex items-start gap-1.5 text-[11px] text-slate-500">
+        <p className="flex items-start gap-1.5 text-footnote text-label-2">
           <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
           {isPartial ? "This is a partial payment. The rest stays due on this instalment. " : ""}
           Only record a payment you have already made. Interest and fees are recorded as an expense; the rest reduces
@@ -372,7 +365,7 @@ function PaymentModal({
         </p>
 
         {error && (
-          <p className="flex items-start gap-1.5 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          <p className="flex items-start gap-1.5 rounded-xl bg-negative/12 px-3 py-2 text-footnote text-negative">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
             {error}
           </p>
@@ -529,8 +522,8 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
           />
         </div>
 
-        <div className="rounded-xl border border-slate-200 p-4">
-          <p className="mb-3 text-xs font-bold text-navy-900">Repayment schedule</p>
+        <div className="rounded-2xl bg-gray/7 p-4">
+          <p className="mb-3 text-headline text-label">Repayment schedule</p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Select
               label="Frequency"
@@ -565,7 +558,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
                     onChange={(e) => setRows(rows.map((x) => (x.key === r.key ? { ...x, amount: e.target.value } : x)))}
                   />
                   <button
-                    className="mb-1 rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-rose-600 disabled:opacity-30"
+                    className="mb-1 press rounded-lg p-2 text-label-3 hover:bg-gray/12 hover:text-negative disabled:opacity-30"
                     onClick={() => setRows(rows.filter((x) => x.key !== r.key))}
                     disabled={rows.length === 1}
                     aria-label="Remove payment"
@@ -588,27 +581,27 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
           <div className="mt-4">
             {preview.schedule ? (
               <>
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                <p className="mb-1 text-caption font-semibold uppercase tracking-wide text-label-3">
                   Preview · {preview.schedule.length} payment{preview.schedule.length === 1 ? "" : "s"} · total{" "}
                   {formatRM(scheduleTotal / 100)}
                 </p>
-                <div className="max-h-40 overflow-y-auto rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                <div className="max-h-40 overflow-y-auto rounded-xl bg-gray/12 px-3 py-2 text-footnote">
                   {preview.schedule.map((i) => (
-                    <div key={i.due_date} className="flex justify-between py-0.5 text-navy-900">
+                    <div key={i.due_date} className="tabular flex justify-between py-0.5 text-label">
                       <span>{formatDate(i.due_date)}</span>
                       <span>{formatRM(i.amount)}</span>
                     </div>
                   ))}
                 </div>
                 {frequency === "irregular" && owed > 0 && scheduleTotal !== toCents(owed) && (
-                  <p className="mt-1 text-[11px] text-amber-700">
+                  <p className="mt-1 text-footnote text-warning">
                     The payments add up to {formatRM(scheduleTotal / 100)}, but the outstanding balance is {formatRM(owed)}. That's fine
                     if the difference is interest or fees; otherwise adjust the amounts.
                   </p>
                 )}
               </>
             ) : (
-              <p className="text-xs text-slate-400">{preview.problem}</p>
+              <p className="text-footnote text-label-3">{preview.problem}</p>
             )}
           </div>
         </div>
@@ -626,7 +619,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
         <TextArea label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
         {error && (
-          <p className="flex items-start gap-1.5 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          <p className="flex items-start gap-1.5 rounded-xl bg-negative/12 px-3 py-2 text-footnote text-negative">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
             {error}
           </p>
@@ -714,12 +707,12 @@ function EditDebtModal({ debt, onClose }: { debt: Debt | null; onClose: () => vo
         </div>
         <Input label="Reference number" value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} />
         <TextArea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        <p className="flex items-start gap-1.5 text-[11px] text-slate-500">
+        <p className="flex items-start gap-1.5 text-footnote text-label-2">
           <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
           Amounts and the repayment schedule can't be changed here, so paid history stays intact.
         </p>
         {error && (
-          <p className="flex items-start gap-1.5 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          <p className="flex items-start gap-1.5 rounded-xl bg-negative/12 px-3 py-2 text-footnote text-negative">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
             {error}
           </p>

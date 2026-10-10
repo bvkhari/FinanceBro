@@ -367,7 +367,7 @@ export default function TransactionsPage() {
         isOpen={showAddModal}
         onClose={() => { setShowAddModal(false); setEditingId(null); }}
         categories={categories}
-        editingTransaction={editingId ? transactions.find((t) => t.id === editingId) : null}
+        editingTransaction={editingId ? transactions.find((t) => t.id === editingId) ?? null : null}
         onSave={(data) => {
           if (editingId) {
             updateTransaction(editingId, data);

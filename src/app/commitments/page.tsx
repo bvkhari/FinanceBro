@@ -240,7 +240,7 @@ export default function CommitmentsPage() {
         isOpen={showAddModal}
         onClose={() => { setShowAddModal(false); setEditingId(null); }}
         categories={categories}
-        editingCommitment={editingId ? commitments.find((c) => c.id === editingId) : null}
+        editingCommitment={editingId ? commitments.find((c) => c.id === editingId) ?? null : null}
         onSave={(data) => {
           if (editingId) {
             updateCommitment(editingId, data);

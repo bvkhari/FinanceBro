@@ -1,12 +1,14 @@
 "use client";
 
 import { useFinance } from "@/lib/FinanceContext";
-import { StatCard } from "@/components/ui/StatCard";
+import { MoneyCard } from "@/components/ui/MoneyCard";
 import { Card } from "@/components/ui/Card";
 import { Segmented } from "@/components/ui/Segmented";
 import { PageHeader } from "@/components/ui/PageHeader";
 import {
-  Wallet,
+  CreditCard,
+  CalendarClock,
+  Plus,
   TrendingUp,
   TrendingDown,
   ChevronRight,
@@ -15,8 +17,9 @@ import {
 } from "lucide-react";
 import { useDebtView } from "@/lib/debt/useDebtView";
 import type { CashFlow } from "@/lib/cashflow";
-import { DebtBreakdownKind, countdown, debtBreakdown } from "@/lib/debt/payments";
-import { PaymentRows } from "@/components/debt/PaymentRows";
+import { addDays, dueWithin, groupByCreditor, totalDue } from "@/lib/debt/payments";
+import { CreditorGroups } from "@/components/debt/CreditorGroups";
+import { Modal } from "@/components/ui/Modal";
 import { formatRM, formatDateShort } from "@/lib/utils";
 import {
   BarChart,
@@ -82,27 +85,37 @@ export default function DashboardPage() {
       <PageHeader
         title="Dashboard"
         subtitle={`Hi ${profile.displayName.split(" ")[0]}. Here's your ${mode === "individual" ? "personal" : "business"} money this month.`}
-        accessory={
-          <Segmented
-            aria-label="Workspace"
-            className="w-full sm:w-56"
-            value={workspace}
-            onChange={setWorkspace}
-            options={[
-              { value: "debt", label: "Debt" },
-              { value: "expenses", label: "Expenses" },
-            ]}
-          />
-        }
       />
+
+      <div className="mb-8 grid grid-cols-1 gap-3 lg:grid-cols-5 lg:gap-4">
+        <MoneyCard
+          className="lg:col-span-3"
+          label="Balance"
+          tag={mode === "individual" ? "Personal" : "Business"}
+          value={summary.currentBalance}
+          stats={[
+            { label: "Income", value: summary.totalMonthlyIncome, tone: "positive" },
+            { label: "Spent", value: summary.totalMonthlyExpenses, tone: "negative" },
+          ]}
+        />
+        <QuickActions className="lg:col-span-2" />
+      </div>
+
+      <div className="mb-6">
+        <Segmented
+          aria-label="Workspace"
+          className="w-full sm:w-64"
+          value={workspace}
+          onChange={setWorkspace}
+          options={[
+            { value: "debt", label: "Debt" },
+            { value: "expenses", label: "Expenses" },
+          ]}
+        />
+      </div>
 
       {workspace === "expenses" ? (
         <div key="expenses" className="animate-rise space-y-8">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 [&>*:first-child]:col-span-2 sm:[&>*:first-child]:col-span-1">
-            <StatCard label="Balance" value={summary.currentBalance} icon={Wallet} variant="accent" subtitle="Available now" />
-            <StatCard label="Income" value={summary.totalMonthlyIncome} icon={TrendingUp} variant="income" subtitle="This month" />
-            <StatCard label="Spent" value={summary.totalMonthlyExpenses} icon={TrendingDown} variant="expense" subtitle="This month" />
-          </div>
 
           {/* Budget — the period control sits next to the numbers it changes */}
           <Card
@@ -302,95 +315,66 @@ function CashFlowCard({ f }: { f: CashFlow }) {
 // Debt dashboard: what is owed vs what is due, and who to pay next
 // ------------------------------------------------------------
 
-const TOTALS: { kind: DebtBreakdownKind; label: string }[] = [
-  { kind: "next7", label: "Next 7 days" },
-  { kind: "month", label: "This month" },
-  { kind: "overdue", label: "Overdue" },
-  { kind: "outstanding", label: "Total owed" },
-];
-
 function DebtWorkspace() {
   const { today, debts, payments, overview: o } = useDebtView();
-  const [open, setOpen] = useState<DebtBreakdownKind | null>(null);
-  const upNext = payments.filter((p) => p.remaining > 0).slice(0, 5);
+  const [sheet, setSheet] = useState<7 | 30 | null>(null);
+  const due30 = dueWithin(payments, 30, today);
+  const groups30 = groupByCreditor(due30, debts);
+  const overdue = totalDue(due30.filter((p) => p.status === "overdue"));
+  const due7 = totalDue(dueWithin(payments, 7, today));
   const monthEnd = formatDateShort(o.monthEnd);
-  const next = o.nextPayment;
-  const breakdown = open ? debtBreakdown(debts, payments, open, today) : [];
-  const value: Record<DebtBreakdownKind, number> = {
-    next7: o.dueNext7Days,
-    month: o.dueThisMonth,
-    overdue: o.overdue,
-    outstanding: o.totalOutstanding,
-  };
+  const sheetItems = sheet ? dueWithin(payments, sheet, today) : [];
 
   return (
+    <>
     <div key="debt" className="animate-rise space-y-8">
-      {/* One hero number, then the totals as a quiet strip. Tap a total to split it by creditor. */}
+      {/* What has to go out in the next 30 days, every BNPL, card, loan and bill together. Tap for the list by creditor. */}
       <section className="overflow-hidden rounded-2xl bg-surface shadow-card">
-        <Link href="/debts" className="press group flex items-end justify-between gap-4 p-5">
+        <button type="button" onClick={() => setSheet(30)} className="press group flex w-full items-end justify-between gap-4 p-5 text-left">
           <div className="min-w-0">
-            <p className="text-subhead text-label-2">Next payment</p>
-            <p className="tabular mt-1 text-large-title text-label">{formatRM(next ? next.remaining : 0)}</p>
+            <p className="text-subhead text-label-2">To pay in the next 30 days</p>
+            <p className="tabular mt-1 text-large-title text-label">{formatRM(totalDue(due30))}</p>
             <p className="mt-1 truncate text-subhead text-label-2">
-              {next ? (
-                <>
-                  {next.payee} · {formatDateShort(next.dueDate)} ·{" "}
-                  <span className="font-medium text-warning">{countdown(next.dueDate, today, next.status)}</span>
-                </>
+              {due30.length === 0 ? (
+                "Nothing due. Nice."
               ) : (
-                "Nothing scheduled"
+                <>
+                  {due30.length} payment{due30.length === 1 ? "" : "s"} · {groups30.length} creditor{groups30.length === 1 ? "" : "s"}
+                  {overdue > 0 && <span className="font-medium text-negative"> · {formatRM(overdue)} overdue</span>}
+                </>
               )}
             </p>
           </div>
           <ChevronRight className="mb-1 h-5 w-5 shrink-0 text-label-3 transition-transform duration-300 ease-spring group-hover:translate-x-0.5" />
-        </Link>
+        </button>
 
-        <div className="grid grid-cols-2 shadow-[inset_0_0.5px_0_var(--separator)] sm:grid-cols-4" role="group" aria-label="Debt totals">
-          {TOTALS.map((t) => {
-            const active = open === t.kind;
-            const alert = t.kind === "overdue" && value[t.kind] > 0;
-            return (
-              <button
-                key={t.kind}
-                type="button"
-                aria-expanded={active}
-                aria-controls="debt-breakdown"
-                onClick={() => setOpen(active ? null : t.kind)}
-                className={`press px-5 py-3.5 text-left transition-colors duration-200 ${active ? "bg-gray/12" : "hover:bg-gray/8"}`}
-              >
-                <p className="text-footnote text-label-2">{t.label}</p>
-                <p className={`tabular mt-0.5 text-headline ${alert ? "text-negative" : "text-label"}`}>{formatRM(value[t.kind])}</p>
-              </button>
-            );
-          })}
+        <div className="grid grid-cols-2 shadow-[inset_0_0.5px_0_var(--separator)]">
+          <button type="button" onClick={() => setSheet(7)} className="press px-5 py-3.5 text-left hover:bg-gray/8">
+            <p className="text-footnote text-label-2">Next 7 days</p>
+            <p className="tabular mt-0.5 text-headline text-label">{formatRM(due7)}</p>
+          </button>
+          <Link href="/debts?tab=debts" className="press flex items-center justify-between gap-2 px-5 py-3.5 shadow-[inset_0.5px_0_0_var(--separator)] hover:bg-gray/8">
+            <span>
+              <span className="block text-footnote text-label-2">Total debt</span>
+              <span className="tabular mt-0.5 block text-headline text-label">{formatRM(o.totalOutstanding)}</span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-label-3" />
+          </Link>
         </div>
-
-        {open && (
-          <div id="debt-breakdown" className="animate-rise px-5 pb-4 pt-3 shadow-[inset_0_0.5px_0_var(--separator)]">
-            {breakdown.length === 0 ? (
-              <p className="text-subhead text-label-2">Nothing here.</p>
-            ) : (
-              <ul className="flex flex-wrap gap-2">
-                {breakdown.map((b) => (
-                  <li key={b.name} className="flex items-baseline gap-1.5 rounded-full bg-gray/12 px-3 py-1 text-subhead">
-                    <span className="text-label-2">{b.name}</span>
-                    <span className="tabular font-semibold text-label">{formatRM(b.amount)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
       </section>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:items-start lg:gap-4">
-        <Card title="Who to pay next" flush className="lg:col-span-3" action={<SeeAll href="/debts" />}>
-          {upNext.length === 0 ? (
-            <p className="py-10 text-center text-subhead text-label-2">Nothing to pay. Nice.</p>
+        <section className="lg:col-span-3">
+          <header className="mb-2 flex min-h-8 items-center justify-between gap-3 px-1">
+            <h2 className="text-title3 text-label">Pay first</h2>
+            <SeeAll href="/debts" />
+          </header>
+          {groups30.length === 0 ? (
+            <p className="rounded-2xl bg-surface py-10 text-center text-subhead text-label-2 shadow-card">Nothing to pay. Nice.</p>
           ) : (
-            <PaymentRows items={upNext} today={today} compact />
+            <CreditorGroups groups={groups30.slice(0, 3)} today={today} />
           )}
-        </Card>
+        </section>
 
         <Card title={`By ${monthEnd}`} flush className="lg:col-span-2">
           <dl className="grouped px-4">
@@ -415,7 +399,54 @@ function DebtWorkspace() {
           </dl>
         </Card>
       </div>
+
     </div>
+
+    <Modal isOpen={sheet !== null} onClose={() => setSheet(null)} title={`Next ${sheet ?? 30} days`} size="md">
+      <p className="mb-4 text-subhead text-label-2">
+        <span className="tabular text-title2 text-label">{formatRM(totalDue(sheetItems))}</span> to pay by{" "}
+        {formatDateShort(addDays(today, sheet ?? 30))}, overdue included. Pay from the top.
+      </p>
+      {sheetItems.length === 0 ? (
+        <p className="py-8 text-center text-subhead text-label-2">Nothing due.</p>
+      ) : (
+        <CreditorGroups groups={groupByCreditor(sheetItems, debts)} today={today} openFirst />
+      )}
+      <Link
+        href={`/debts?range=${sheet ?? 30}`}
+        className="press mt-4 flex h-11 items-center justify-center rounded-xl bg-accent text-headline text-white"
+      >
+        Record a payment
+      </Link>
+    </Modal>
+    </>
+  );
+}
+
+const QUICK = [
+  { href: "/debts", label: "Pay", icon: CreditCard },
+  { href: "/commitments", label: "Bills", icon: CalendarClock },
+  { href: "/transactions?new=1", label: "Add", icon: Plus },
+  { href: "/financebro-ai", label: "Ask AI", icon: Sparkles },
+];
+
+// Shortcut tiles under the balance card: the four things people come here to do.
+function QuickActions({ className = "" }: { className?: string }) {
+  return (
+    <nav aria-label="Quick actions" className={`grid grid-cols-4 gap-3 lg:grid-cols-2 ${className}`}>
+      {QUICK.map(({ href, label, icon: Icon }) => (
+        <Link
+          key={label}
+          href={href}
+          className="press flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-surface py-3.5 shadow-card hover:bg-gray/7"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray/12 text-label">
+            <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
+          </span>
+          <span className="text-footnote font-medium text-label">{label}</span>
+        </Link>
+      ))}
+    </nav>
   );
 }
 

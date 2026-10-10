@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Select, TextArea } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { MoneyCard } from "@/components/ui/MoneyCard";
 import { Segmented } from "@/components/ui/Segmented";
 import { formatDate, formatDateShort, formatRM, todayISO } from "@/lib/utils";
 import { Debt, DebtInstalment, DebtType } from "@/lib/types";
@@ -26,24 +27,25 @@ import {
   debtTypesFor,
 } from "@/lib/debt/labels";
 import { PaymentModal, PaymentTarget } from "@/components/debt/PaymentModal";
-import { PaymentRows } from "@/components/debt/PaymentRows";
+import { CreditorGroups } from "@/components/debt/CreditorGroups";
 import { useDebtView } from "@/lib/debt/useDebtView";
 import { EditInstalmentModal, ExtendScheduleModal, RescheduleModal } from "@/components/debt/ScheduleModals";
 import { ScheduleDraft, ScheduleEditor, draftRepayment, emptyDraft, previewSchedule } from "@/components/debt/ScheduleEditor";
 import { spendingCategories } from "@/lib/categories";
 import { downloadCsv } from "@/lib/csv";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { PAYMENT_FILTERS, PaymentFilter, PaymentItem, balanceHistory, countdown, extraPaymentScenario, filterPayments, payoffSummary, totalDue, totalPaid } from "@/lib/debt/payments";
+import { PaymentItem, addDays, balanceHistory, countdown, dueWithin, extraPaymentScenario, groupByCreditor, payoffSummary, totalDue } from "@/lib/debt/payments";
 import { toCents } from "@/lib/debt/schedule";
 
 type View = "active" | "paid_off" | "all";
 type Tab = "payments" | "debts";
+type Range = 7 | 30;
 
 export default function DebtsPage() {
   const { mode, markCommitmentPaid } = useFinance();
-  const { today, debts, payments } = useDebtView();
+  const { today, debts, payments, overview } = useDebtView();
   const [tab, setTab] = useState<Tab>("payments");
-  const [filter, setFilter] = useState<PaymentFilter>("all");
+  const [range, setRange] = useState<Range>(30);
   const [view, setView] = useState<View>("active");
   const [sort, setSort] = useState<"due" | "interest">("due");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -61,12 +63,11 @@ export default function DebtsPage() {
     setFlash(msg);
   };
 
-  // Deep links from the dashboard: /debts?tab=debts or /debts?filter=overdue
+  // Deep links from the dashboard: /debts?tab=debts or /debts?range=7
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get("tab") === "debts") setTab("debts");
-    const f = q.get("filter");
-    if (f && PAYMENT_FILTERS.some((o) => o.value === f)) setFilter(f as PaymentFilter);
+    if (q.get("range") === "7") setRange(7);
   }, []);
 
   // Messages and open rows belong to one view; clear them when switching.
@@ -83,8 +84,9 @@ export default function DebtsPage() {
       sort === "interest" ? (b.interestRate ?? -1) - (a.interestRate ?? -1) || due(a).localeCompare(due(b)) : due(a).localeCompare(due(b))
     );
   }, [debts, view, sort]);
-  const shown = useMemo(() => filterPayments(payments, filter, today), [payments, filter, today]);
-  const unpaidCount = shown.filter((p) => p.remaining > 0).length;
+  // Everything due by today + range, overdue included, one group per creditor in the order to pay them.
+  const shown = useMemo(() => dueWithin(payments, range, today), [payments, range, today]);
+  const groups = useMemo(() => groupByCreditor(shown, debts), [shown, debts]);
 
   const title = mode === "business" ? "Business Debts" : "Personal Debts";
 
@@ -98,6 +100,18 @@ export default function DebtsPage() {
             Add debt
           </Button>
         }
+      />
+
+      <MoneyCard
+        className="mb-6"
+        label="Total outstanding"
+        tag={`${overview.activeDebts} active`}
+        value={overview.totalOutstanding}
+        stats={[
+          { label: "Next 30 days", value: totalDue(dueWithin(payments, 30, today)) },
+          { label: "Next 7 days", value: totalDue(dueWithin(payments, 7, today)) },
+          ...(overview.overdue > 0 ? [{ label: "Overdue", value: overview.overdue, tone: "negative" as const }] : []),
+        ]}
       />
 
       <div className="mb-5">
@@ -125,64 +139,49 @@ export default function DebtsPage() {
 
       {tab === "payments" ? (
         <section aria-label="Upcoming payments">
-          <div className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0" role="radiogroup" aria-label="Filter payments">
-            {PAYMENT_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                role="radio"
-                aria-checked={filter === f.value}
-                onClick={() => setFilter(f.value)}
-                className={`press shrink-0 rounded-full px-3.5 py-1.5 text-subhead font-medium ${
-                  filter === f.value ? "bg-accent text-white" : "bg-gray/12 text-label"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          <Segmented<`${Range}`>
+            aria-label="Period"
+            className="mb-4 w-full sm:w-72"
+            value={`${range}`}
+            onChange={(v) => setRange(Number(v) as Range)}
+            options={[
+              { value: "7", label: "Next 7 days" },
+              { value: "30", label: "Next 30 days" },
+            ]}
+          />
 
           <div className="mb-3 flex items-baseline justify-between gap-3 px-1">
-            {filter === "paid" ? (
-              <p className="text-subhead text-label-2">
-                <span className="tabular text-title3 text-label">{formatRM(totalPaid(shown))}</span> paid · {shown.length} payment{shown.length === 1 ? "" : "s"}
-              </p>
-            ) : (
-              <p className="text-subhead text-label-2">
-                <span className={`tabular text-title3 ${filter === "overdue" && totalDue(shown) > 0 ? "text-negative" : "text-label"}`}>
-                  {formatRM(totalDue(shown))}
-                </span>{" "}
-                to pay · {unpaidCount} payment{unpaidCount === 1 ? "" : "s"}
-              </p>
-            )}
-            <div className="flex items-center gap-3">
-              {filter !== "paid" && (
-                <p className="hidden text-footnote text-label-3 sm:block">Paid and cancelled payments aren&apos;t counted</p>
-              )}
-              <Button variant="ghost" size="sm" icon={<Download className="h-3.5 w-3.5" />} disabled={!shown.length} onClick={() => exportPayments(shown, filter)}>
-                CSV
-              </Button>
-            </div>
+            <p className="text-subhead text-label-2">
+              <span className="tabular text-title3 text-label">{formatRM(totalDue(shown))}</span> to pay by{" "}
+              {formatDateShort(addDays(today, range))} · {shown.length} payment{shown.length === 1 ? "" : "s"}
+            </p>
+            <Button variant="ghost" size="sm" icon={<Download className="h-3.5 w-3.5" />} disabled={!shown.length} onClick={() => exportPayments(shown, range)}>
+              CSV
+            </Button>
           </div>
 
-          <div className="overflow-hidden rounded-2xl bg-surface shadow-card">
-            {shown.length === 0 ? (
-              <div className="px-6 py-14 text-center">
-                <p className="text-headline">{EMPTY_PAYMENTS[filter]}</p>
-              </div>
-            ) : (
-              <PaymentRows
-                items={shown}
-                today={today}
-                onPay={(p) =>
-                  setPaying({ payee: p.payee, instalmentId: p.instalmentId!, dueDate: p.dueDate, amount: p.amount, amountPaid: p.amountPaid, remaining: p.remaining })
-                }
-                onMarkBillPaid={(p) => {
-                  markCommitmentPaid(p.commitmentId!);
-                  setFlash(`Marked ${p.payee} (${formatRM(p.remaining)}) as paid.`);
-                }}
-              />
-            )}
-          </div>
+          {groups.length === 0 ? (
+            <div className="rounded-2xl bg-surface px-6 py-14 text-center shadow-card">
+              <p className="text-headline">Nothing due in the next {range} days</p>
+            </div>
+          ) : (
+            <CreditorGroups
+              key={range}
+              groups={groups}
+              today={today}
+              openFirst
+              onPay={(p) =>
+                setPaying({ payee: p.payee, instalmentId: p.instalmentId!, dueDate: p.dueDate, amount: p.amount, amountPaid: p.amountPaid, remaining: p.remaining })
+              }
+              onMarkBillPaid={(p) => {
+                markCommitmentPaid(p.commitmentId!);
+                setFlash(`Marked ${p.payee} (${formatRM(p.remaining)}) as paid.`);
+              }}
+            />
+          )}
+          <p className="mt-3 px-1 text-footnote text-label-3">
+            Overdue payments are included. Order: overdue first, then the soonest due date, then the highest interest rate.
+          </p>
         </section>
       ) : (
         <section aria-label="Debts">
@@ -278,8 +277,8 @@ function byType(debts: Debt[]): [string, number][] {
 
 const profileName = (m: Debt["mode"]) => (m === "business" ? "Business" : "Personal");
 
-function exportPayments(items: PaymentItem[], filter: PaymentFilter) {
-  downloadCsv(`payments-${filter}-${todayISO()}.csv`, [
+function exportPayments(items: PaymentItem[], range: Range) {
+  downloadCsv(`payments-next-${range}-days-${todayISO()}.csv`, [
     ["Profile", "Pay to", "Category", "Frequency", "Due date", "Amount", "Paid", "Still due", "Paid on", "Status"],
     ...items.map((p) => [
       profileName(p.mode), p.payee, p.category, p.frequency, p.dueDate, p.amount.toFixed(2), p.amountPaid.toFixed(2),
@@ -298,15 +297,6 @@ function exportDebts(debts: Debt[]) {
     ]),
   ]);
 }
-
-const EMPTY_PAYMENTS: Record<PaymentFilter, string> = {
-  all: "No payments yet",
-  today: "Nothing due today",
-  next7: "Nothing due in the next 7 days",
-  month: "Nothing left to pay this month",
-  overdue: "Nothing overdue",
-  paid: "No payments recorded yet",
-};
 
 // ------------------------------------------------------------
 // Debt card with its repayment schedule

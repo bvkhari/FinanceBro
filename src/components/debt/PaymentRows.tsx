@@ -2,7 +2,7 @@
 
 import { CreditCard, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { formatDate, formatRM } from "@/lib/utils";
+import { formatDate, formatDateShort, formatRM } from "@/lib/utils";
 import { INSTALMENT_STATUS_STYLE } from "@/lib/debt/labels";
 import { PaymentItem, countdown } from "@/lib/debt/payments";
 
@@ -39,16 +39,16 @@ export function PaymentRows({
         const late = p.status === "overdue";
         const Icon = p.kind === "debt" ? CreditCard : Receipt;
         return (
-          <li key={p.key} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+          <li key={p.key} className={`flex items-center gap-x-3 gap-y-2 px-4 py-3 ${compact ? "" : "flex-wrap"}`}>
             <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${iconTone[p.status]}`}>
               <Icon className="h-4 w-4" />
             </span>
 
-            <div className="min-w-0 flex-1 basis-40">
+            <div className={`min-w-0 flex-1 ${compact ? "" : "basis-40"}`}>
               <p className="truncate text-body text-label">{p.payee}</p>
               <p className="text-footnote text-label-2">
                 <span className={late ? "font-medium text-negative" : unpaid && p.dueDate === today ? "font-medium text-warning" : ""}>
-                  {formatDate(p.dueDate)} · {countdown(p.dueDate, today, p.status)}
+                  {compact ? formatDateShort(p.dueDate) : formatDate(p.dueDate)} · {countdown(p.dueDate, today, p.status)}
                 </span>
                 {!compact && (
                   <>

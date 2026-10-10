@@ -14,6 +14,9 @@ import {
   extraPaymentScenario,
   payoffSummary,
   balanceHistory,
+  creditorOf,
+  dueWithin,
+  groupByCreditor,
 } from "./payments";
 
 const TODAY = "2026-10-10";
@@ -289,5 +292,40 @@ describe("balanceHistory", () => {
 
   it("has no history to show without recorded payments", () => {
     expect(balanceHistory(base)).toEqual([]);
+  });
+});
+
+describe("dueWithin and groupByCreditor", () => {
+  const phone = debt("p", "SPayLater – phone", 180, [inst("p1", "2026-10-12", 90), inst("p2", "2026-11-12", 90)]);
+  const buds = debt("h", "SPayLater – headphones", 90, [inst("h1", "2026-10-14", 45), inst("h2", "2026-11-14", 45)]);
+  const card = debt("c", "Maybank card", 500, [inst("c1", "2026-10-14", 200)], { interestRate: 15 });
+  const late = debt("l", "Grab PayLater", 60, [inst("l1", "2026-10-05", 30), inst("l2", "2026-11-05", 30)]);
+  const done = debt("d", "Atome", 50, [inst("d1", "2026-10-11", 50, 50)]);
+  const debts = [phone, buds, card, late, done];
+  const items = buildPayments(debts, [bill("b", "Rent share", "2026-11-20", 400)], TODAY);
+
+  it("keeps unpaid items due by today + N days, overdue included", () => {
+    const keys = (xs: { key: string }[]) => xs.map((x) => x.key).sort();
+    expect(keys(dueWithin(items, 7, TODAY))).toEqual(["inst:c1", "inst:h1", "inst:l1", "inst:p1"]);
+    expect(keys(dueWithin(items, 30, TODAY))).toEqual(["inst:c1", "inst:h1", "inst:l1", "inst:l2", "inst:p1"]);
+    expect(totalDue(dueWithin(items, 30, TODAY))).toBe(90 + 45 + 200 + 30 + 30);
+  });
+
+  it("strips the plan name to find the creditor", () => {
+    expect(creditorOf("SPayLater – phone")).toBe("SPayLater");
+    expect(creditorOf("Hong Leong Bank - espresso machine")).toBe("Hong Leong Bank");
+    expect(creditorOf("Kopi Bumi Roasters")).toBe("Kopi Bumi Roasters");
+  });
+
+  it("groups plans by creditor and orders overdue, then soonest, then highest rate", () => {
+    const groups = groupByCreditor(dueWithin(items, 30, TODAY), debts);
+    expect(groups.map((g) => g.creditor)).toEqual(["Grab PayLater", "SPayLater", "Maybank card"]);
+    const spay = groups[1];
+    expect(spay.items.map((i) => i.key)).toEqual(["inst:p1", "inst:h1"]);
+    expect(spay.total).toBe(135);
+    expect(groups[0].overdue).toBe(30);
+    // Same next due date (14 Oct): the known 15% rate outranks SPayLater's unknown one.
+    const tie = groupByCreditor(dueWithin(items, 30, TODAY).filter((i) => i.key !== "inst:p1"), debts);
+    expect(tie.map((g) => g.creditor)).toEqual(["Grab PayLater", "Maybank card", "SPayLater"]);
   });
 });

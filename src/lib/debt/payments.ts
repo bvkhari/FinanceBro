@@ -157,6 +157,64 @@ export function filterPayments(items: PaymentItem[], filter: PaymentFilter, toda
   }
 }
 
+/**
+ * Everything still to pay (debt instalments and bills) due on or before
+ * today + `days`. Overdue items are included: they still have to be paid.
+ */
+export function dueWithin(items: PaymentItem[], days: number, today: string): PaymentItem[] {
+  const until = addDays(today, days);
+  return items.filter((i) => isUnpaid(i) && i.dueDate <= until);
+}
+
+/** "SPayLater – phone" → "SPayLater", so plans with the same provider share one group. */
+export function creditorOf(name: string): string {
+  return name.split(/\s+[–—-]\s+/)[0].trim() || name;
+}
+
+export interface CreditorGroup {
+  creditor: string;
+  items: PaymentItem[]; // nearest due date first
+  total: number; // still to pay across the items
+  overdue: number; // part of total that is overdue
+  nextDue: string; // earliest due date in the group
+  interestRate?: number; // highest known rate across the group's debts
+}
+
+/**
+ * One group per creditor, in the order to pay them: anything overdue first,
+ * then the earliest due date, then the highest known interest rate, then the
+ * larger amount. Unknown rates never outrank known ones.
+ */
+export function groupByCreditor(items: PaymentItem[], debts: Debt[]): CreditorGroup[] {
+  const rate = new Map(debts.map((d) => [d.id, d.interestRate]));
+  const groups = new Map<string, PaymentItem[]>();
+  for (const i of items.filter(isUnpaid)) {
+    const k = creditorOf(i.payee);
+    groups.set(k, [...(groups.get(k) ?? []), i]);
+  }
+  return [...groups]
+    .map(([creditor, list]) => {
+      const sorted = [...list].sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.payee.localeCompare(b.payee));
+      const rates = sorted.map((i) => (i.debtId ? rate.get(i.debtId) : undefined)).filter((r): r is number => r != null);
+      return {
+        creditor,
+        items: sorted,
+        total: totalDue(sorted),
+        overdue: totalDue(sorted.filter((i) => i.status === "overdue")),
+        nextDue: sorted[0].dueDate,
+        interestRate: rates.length ? Math.max(...rates) : undefined,
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(b.overdue > 0) - Number(a.overdue > 0) ||
+        a.nextDue.localeCompare(b.nextDue) ||
+        (b.interestRate ?? -1) - (a.interestRate ?? -1) ||
+        b.total - a.total ||
+        a.creditor.localeCompare(b.creditor)
+    );
+}
+
 /** Amount still to pay. Paid and cancelled items count as 0; partly paid ones count only what is left. */
 export const totalDue = (items: PaymentItem[]) => sumCents(items, (i) => i.remaining);
 

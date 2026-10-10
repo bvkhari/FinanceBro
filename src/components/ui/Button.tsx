@@ -17,23 +17,24 @@ export function Button({
   ...props
 }: ButtonProps) {
   const sizeClass = {
-    sm: "px-3 py-1.5 text-xs",
-    md: "px-4 py-2.5 text-sm",
-    lg: "px-6 py-3 text-base",
+    sm: "h-8 px-3 text-subhead gap-1.5 rounded-full",
+    md: "h-10 px-4 text-headline gap-2 rounded-xl",
+    lg: "h-12 px-6 text-headline gap-2 rounded-2xl",
   }[size];
 
+  // Filled for the one primary action; tinted fills for everything secondary.
   const variantClass = {
-    primary: "bg-teal-600 text-white hover:bg-teal-700 shadow-sm shadow-teal-600/20",
-    secondary: "bg-navy-800 text-white hover:bg-navy-900 shadow-sm",
-    outline: "border border-slate-300 bg-white text-navy-700 hover:bg-slate-50",
-    ghost: "text-slate-600 hover:bg-slate-100",
-    danger: "bg-red-500 text-white hover:bg-red-600 shadow-sm shadow-red-500/20",
-    success: "bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm shadow-emerald-500/20",
+    primary: "bg-accent text-white",
+    secondary: "bg-gray/15 text-label",
+    outline: "bg-gray/15 text-accent-text",
+    ghost: "text-accent-text hover:bg-gray/10",
+    danger: "bg-negative/12 text-negative",
+    success: "bg-positive text-white",
   }[variant];
 
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-all focus-ring disabled:cursor-not-allowed disabled:opacity-50 ${sizeClass} ${variantClass} ${className}`}
+      className={`press inline-flex select-none items-center justify-center font-semibold disabled:opacity-40 ${sizeClass} ${variantClass} ${className}`}
       {...props}
     >
       {icon}

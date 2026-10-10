@@ -1,193 +1,183 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Menu, Bell, User, ChevronDown } from "lucide-react";
+import { Bell, RotateCcw } from "lucide-react";
 import { useFinance } from "@/lib/FinanceContext";
-import { useState, useRef, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { formatRM } from "@/lib/utils";
+import { Segmented } from "@/components/ui/Segmented";
+import { Popover } from "@/components/ui/Popover";
+import { pageTitles } from "./nav";
 
-const pageTitles: Record<string, string> = {
-  "/": "Dashboard",
-  "/financebro-ai": "FinanceBro AI",
-  "/transactions": "Transactions",
-  "/commitments": "Commitments",
-};
+const dotColor = { warning: "bg-warning", success: "bg-positive", info: "bg-info" } as const;
 
-export function TopNav({ onMenuClick }: { onMenuClick: () => void }) {
+export function TopNav() {
   const pathname = usePathname();
-  const { mode, setMode, profile, notifications, unreadCount, markNotificationRead } = useFinance();
+  const { mode, setMode, profile, notifications, unreadCount, markNotificationRead, resetData } = useFinance();
   const [showNotifs, setShowNotifs] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const notifRef = useRef<HTMLDivElement>(null);
-  const profileRef = useRef<HTMLDivElement>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
+  // The page's large title scrolls away; the compact title fades into the bar.
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setShowNotifs(false);
-      }
-      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
-        setShowProfile(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    const onScroll = () => setScrolled(window.scrollY > 44);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [pathname]);
+
+  const closeNotifs = useCallback(() => setShowNotifs(false), []);
+  const closeProfile = useCallback(() => {
+    setShowProfile(false);
+    setConfirmReset(false);
   }, []);
 
   const title = pageTitles[pathname] || "Dashboard";
+  const initial = profile.displayName.charAt(0);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur-xl">
-      <div className="flex h-16 items-center justify-between px-4 sm:px-6">
-        {/* Left: hamburger + page title */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onMenuClick}
-            className="rounded-lg p-2 text-navy-700 hover:bg-slate-100 lg:hidden"
-            aria-label="Open menu"
+    <header
+      className={`material sticky top-0 z-30 transition-shadow duration-200 ${scrolled ? "material-edge-b" : ""}`}
+    >
+      <div className="flex h-[var(--topbar-h)] items-center justify-between gap-3 px-4 sm:px-6">
+        <p
+          className={`truncate text-headline text-label transition-[opacity,transform] duration-300 ease-out ${
+            scrolled ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0"
+          }`}
+          aria-hidden={!scrolled}
+        >
+          {title}
+        </p>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <Segmented
+            aria-label="Account mode"
+            size="sm"
+            className="w-40 sm:w-[11.5rem]"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: "individual", label: "Individual" },
+              { value: "business", label: "Business" },
+            ]}
+          />
+
+          <Popover
+            open={showNotifs}
+            onClose={closeNotifs}
+            className="w-80"
+            trigger={
+              <button
+                onClick={() => setShowNotifs((v) => !v)}
+                className="press relative flex h-9 w-9 items-center justify-center rounded-full text-label-2 hover:bg-gray/10"
+                aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`}
+                aria-expanded={showNotifs}
+              >
+                <Bell className="h-5 w-5" strokeWidth={2} />
+                {unreadCount > 0 && (
+                  <span className="tabular absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-negative px-1 text-[0.625rem] font-semibold text-white">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            }
           >
-            <Menu className="h-5 w-5" />
-          </button>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold text-navy-900 sm:text-xl">{title}</h1>
-            <span className="hidden rounded-full bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700 sm:inline">
-              Demo Preview
-            </span>
-          </div>
-        </div>
-
-        {/* Right: mode switch, notifications, profile */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Mode Switch */}
-          <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-0.5">
-            <button
-              onClick={() => setMode("individual")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
-                mode === "individual"
-                  ? "bg-white text-navy-900 shadow-sm"
-                  : "text-slate-500 hover:text-navy-700"
-              }`}
-            >
-              Individual
-            </button>
-            <button
-              onClick={() => setMode("business")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
-                mode === "business"
-                  ? "bg-white text-navy-900 shadow-sm"
-                  : "text-slate-500 hover:text-navy-700"
-              }`}
-            >
-              Business
-            </button>
-          </div>
-
-          {/* Notifications */}
-          <div className="relative" ref={notifRef}>
-            <button
-              onClick={() => setShowNotifs(!showNotifs)}
-              className="relative rounded-lg p-2 text-navy-700 hover:bg-slate-100"
-              aria-label="Notifications"
-            >
-              <Bell className="h-5 w-5" />
-              {unreadCount > 0 && (
-                <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-                  {unreadCount}
-                </span>
+            <div className="flex items-baseline justify-between px-4 pb-2 pt-3.5">
+              <h3 className="text-headline">Notifications</h3>
+              {unreadCount > 0 && <span className="text-footnote text-label-2">{unreadCount} unread</span>}
+            </div>
+            <div className="grouped-inset max-h-80 overflow-y-auto pb-1" style={{ ["--inset" as string]: "2.25rem" }}>
+              {notifications.length === 0 ? (
+                <p className="px-4 py-8 text-center text-subhead text-label-2">You're all caught up.</p>
+              ) : (
+                notifications.map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => markNotificationRead(n.id)}
+                    className="row-press flex w-full gap-3 px-4 py-2.5 text-left"
+                  >
+                    <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${n.read ? "bg-transparent" : dotColor[n.type]}`} />
+                    <span className="min-w-0">
+                      <span className={`block text-subhead ${n.read ? "text-label-2" : "font-semibold text-label"}`}>{n.title}</span>
+                      <span className="block text-footnote text-label-2">{n.message}</span>
+                    </span>
+                  </button>
+                ))
               )}
-            </button>
+            </div>
+          </Popover>
 
-            {showNotifs && (
-              <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200 bg-white shadow-xl animate-slide-up">
-                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                  <h3 className="text-sm font-bold text-navy-900">Notifications</h3>
-                  <span className="text-xs text-slate-400">{unreadCount} unread</span>
-                </div>
-                <div className="max-h-80 overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <p className="px-4 py-8 text-center text-sm text-slate-400">
-                      No notifications
-                    </p>
-                  ) : (
-                    notifications.map((n) => (
-                      <button
-                        key={n.id}
-                        onClick={() => markNotificationRead(n.id)}
-                        className={`flex w-full flex-col gap-1 border-b border-slate-50 px-4 py-3 text-left hover:bg-slate-50 ${
-                          !n.read ? "bg-teal-50/40" : ""
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`h-2 w-2 rounded-full ${
-                              n.type === "warning"
-                                ? "bg-amber-500"
-                                : n.type === "success"
-                                ? "bg-emerald-500"
-                                : "bg-blue-500"
-                            }`}
-                          />
-                          <span className="text-sm font-semibold text-navy-900">{n.title}</span>
-                          {!n.read && (
-                            <span className="ml-auto h-2 w-2 rounded-full bg-teal-500" />
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500">{n.message}</p>
-                      </button>
-                    ))
-                  )}
-                </div>
+          <Popover
+            open={showProfile}
+            onClose={closeProfile}
+            className="w-72"
+            trigger={
+              <button
+                onClick={() => setShowProfile((v) => !v)}
+                className="press flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-b from-[rgb(142_142_147)] to-[rgb(99_99_102)] text-subhead font-semibold text-white"
+                aria-label="Profile"
+                aria-expanded={showProfile}
+              >
+                {initial}
+              </button>
+            }
+          >
+            <div className="flex items-center gap-3 px-4 pb-3 pt-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-b from-[rgb(142_142_147)] to-[rgb(99_99_102)] text-title3 text-white">
+                {initial}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-headline">{profile.displayName}</p>
+                <p className="text-footnote text-label-2">{profile.accountType}</p>
               </div>
-            )}
-          </div>
-
-          {/* Profile */}
-          <div className="relative" ref={profileRef}>
-            <button
-              onClick={() => setShowProfile(!showProfile)}
-              className="flex items-center gap-2 rounded-xl border border-slate-200 py-1 pl-1 pr-2 hover:bg-slate-50 sm:pr-3"
-            >
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-navy-700 to-navy-900 text-sm font-bold text-white">
-                {profile.displayName.charAt(0)}
-              </div>
-              <div className="hidden text-left sm:block">
-                <p className="text-xs font-semibold text-navy-900">{profile.displayName}</p>
-                <p className="text-[10px] text-slate-400">{profile.accountType}</p>
-              </div>
-              <ChevronDown className="hidden h-4 w-4 text-slate-400 sm:block" />
-            </button>
-
-            {showProfile && (
-              <div className="absolute right-0 top-full mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl animate-slide-up">
-                <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-navy-700 to-navy-900 text-lg font-bold text-white">
-                    {profile.displayName.charAt(0)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-navy-900">{profile.displayName}</p>
-                    <p className="text-xs text-slate-400">{profile.accountType}</p>
+            </div>
+            <dl className="grouped mx-3 rounded-xl bg-gray/7 text-subhead">
+              {[
+                ["Mode", mode === "individual" ? "Individual" : "Business"],
+                ["Monthly budget", formatRM(profile.monthlyBudget)],
+                ["Currency", profile.currency],
+              ].map(([k, v]) => (
+                <div key={k} className="flex justify-between px-3 py-2.5">
+                  <dt className="text-label-2">{k}</dt>
+                  <dd className="tabular font-medium">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="p-3">
+              {confirmReset ? (
+                <div className="rounded-xl bg-negative/10 p-3">
+                  <p className="text-subhead text-label">Reset all demo data? Your changes will be lost.</p>
+                  <div className="mt-2.5 flex gap-2">
+                    <button
+                      onClick={() => setConfirmReset(false)}
+                      className="press h-8 flex-1 rounded-lg bg-gray/16 text-subhead font-semibold"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        resetData();
+                        closeProfile();
+                      }}
+                      className="press h-8 flex-1 rounded-lg bg-negative text-subhead font-semibold text-white"
+                    >
+                      Reset
+                    </button>
                   </div>
                 </div>
-                <div className="space-y-2 pt-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Mode</span>
-                    <span className="font-medium capitalize text-navy-900">{mode}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Monthly Budget</span>
-                    <span className="font-medium text-navy-900">{formatRM(profile.monthlyBudget)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Currency</span>
-                    <span className="font-medium text-navy-900">{profile.currency}</span>
-                  </div>
-                </div>
-                <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-center">
-                  <p className="text-xs text-slate-400">Demo user — no login required</p>
-                </div>
-              </div>
-            )}
-          </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmReset(true)}
+                  className="row-press flex h-9 w-full items-center gap-2 rounded-lg px-3 text-subhead font-medium text-negative"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reset demo data
+                </button>
+              )}
+              <p className="px-3 pt-2 text-caption text-label-3">Demo account. No sign-in needed.</p>
+            </div>
+          </Popover>
         </div>
       </div>
     </header>

@@ -2,12 +2,10 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useFinance } from "@/lib/FinanceContext";
-import { ChatMessage, AgentExecutionStep, AgentAction, TransactionPreviewData, TransactionType } from "@/lib/types";
-import { formatRM, formatRMCompact } from "@/lib/utils";
-import { Button } from "@/components/ui/Button";
+import { ChatMessage, AgentExecutionStep, TransactionPreviewData, TransactionType } from "@/lib/types";
+import { formatRM } from "@/lib/utils";
 import {
-  Bot,
-  Send,
+  ArrowUp,
   Sparkles,
   Brain,
   ListChecks,
@@ -17,12 +15,8 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
-  Receipt,
-  Wallet,
-  TrendingUp,
-  PiggyBank,
-  X,
   Check,
+  ChevronRight,
 } from "lucide-react";
 
 const SUGGESTED_PROMPTS = [
@@ -44,30 +38,57 @@ const AGENT_STEP_ICONS: Record<string, typeof Brain> = {
   "Verifying results": CheckCircle2,
 };
 
+function welcomeMessage(): ChatMessage {
+  return {
+    id: "welcome",
+    role: "assistant",
+    content: `Hey bro. Tell me what you spent, or ask whether you can afford something. I'll check it against your balance and the bills you still owe.`,
+    timestamp: new Date().toISOString(),
+    isDemoPreview: true,
+  };
+}
+
 export default function FinanceBroAIPage() {
   const { summary, mode, addTransaction, profile } = useFinance();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [welcomeMessage()]);
   const [input, setInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sentFromQuery = useRef(false);
 
+  // Switching mode starts a fresh conversation.
+  const lastMode = useRef(mode);
   useEffect(() => {
-    // Welcome message
-    setMessages([
-      {
-        id: "welcome",
-        role: "assistant",
-        content: `Hey bro! 👋 I'm FinanceBro AI, your personal financial copilot. I can help you track expenses, manage budgets, and plan your finances. Try asking me something — like "Bro, I spent RM59 today" or "Bro, how much money do I have left?"\n\n⚠️ Demo Preview: Responses are simulated. Backend AI integration coming soon.`,
-        timestamp: new Date().toISOString(),
-        isDemoPreview: true,
-      },
-    ]);
+    if (lastMode.current === mode) return;
+    lastMode.current = mode;
+    setMessages([welcomeMessage()]);
+    setShowSuggestions(true);
   }, [mode]);
 
+  // Prompts handed over from the dashboard (?q=...) send straight away.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (sentFromQuery.current) return;
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (!q) return;
+    sentFromQuery.current = true;
+    window.history.replaceState(null, "", window.location.pathname);
+    handleSend(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
+
+  // Grow the composer with its content, up to a cap.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [input]);
 
   const handleSend = (text?: string) => {
     const userText = text || input.trim();
@@ -95,6 +116,7 @@ export default function FinanceBroAIPage() {
     const lowerText = userText.toLowerCase();
     const rmMatch = userText.match(/RM?\s?(\d+(?:\.\d+)?)/i);
     const amount = rmMatch ? parseFloat(rmMatch[1]) : 0;
+    const account = mode === "individual" ? "personal" : "business";
 
     // Scenario 1: "I spent RMXX"
     if (lowerText.includes("spent") && amount > 0) {
@@ -107,12 +129,11 @@ export default function FinanceBroAIPage() {
         "Awaiting approval",
       ]);
 
-      // First: agent steps animation
       animateAgentSteps(steps, () => {
         const assistantMsg: ChatMessage = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `Bro, I see you spent ${formatRM(amount)}. Was this a personal or business expense? And what category? For now, I'll assume it's a ${mode === "individual" ? "personal" : "business"} expense. Please confirm the transaction below.`,
+          content: `Got it, ${formatRM(amount)}. I've filed it as a ${account} expense under Food. Check the details, then confirm.`,
           timestamp: new Date().toISOString(),
           isDemoPreview: true,
           agentSteps: steps.map((s) => ({ ...s, status: "completed" as const })),
@@ -141,10 +162,10 @@ export default function FinanceBroAIPage() {
         const assistantMsg: ChatMessage = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `Bro, here's your current financial situation:\n\n💰 Current Balance: ${formatRM(summary.currentBalance)}\n📉 Monthly Expenses: ${formatRM(summary.totalMonthlyExpenses)}\n📅 Upcoming Commitments: ${formatRM(summary.upcomingCommitments)}\n🎯 Projected Remaining: ${formatRM(summary.projectedRemainingBalance)}\n\nYou're in ${mode === "individual" ? "Individual" : "Business"} mode. ${
+          content: `Here's where you stand.\n\nBalance: ${formatRM(summary.currentBalance)}\nSpent this month: ${formatRM(summary.totalMonthlyExpenses)}\nBills still due: ${formatRM(summary.upcomingCommitments)}\nLeft after bills: ${formatRM(summary.projectedRemainingBalance)}\n\n${
             summary.projectedRemainingBalance > 0
-              ? "You're looking good, bro! You've got enough to cover your upcoming commitments."
-              : "Heads up, bro — after your upcoming commitments, you might be short. Consider cutting back on non-essential spending."
+              ? "You can cover every bill that's due."
+              : "You'll come up short once the bills go out. Hold off on anything you don't need."
           }`,
           timestamp: new Date().toISOString(),
           isDemoPreview: true,
@@ -170,10 +191,10 @@ export default function FinanceBroAIPage() {
         const assistantMsg: ChatMessage = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `Bro, let me check for you...\n\n📊 Current Balance: ${formatRM(summary.currentBalance)}\n📅 Upcoming Commitments: ${formatRM(summary.upcomingCommitments)}\n🎯 Projected Remaining: ${formatRM(summary.projectedRemainingBalance)}\n\nIf you spend ${formatRM(amount)}, your projected remaining balance would be ${formatRM(afterSpend)}.\n\n${
+          content: `Balance: ${formatRM(summary.currentBalance)}\nBills still due: ${formatRM(summary.upcomingCommitments)}\nLeft after bills: ${formatRM(summary.projectedRemainingBalance)}\n\nSpend ${formatRM(amount)} and that drops to ${formatRM(afterSpend)}.\n\n${
             canAfford
-              ? "✅ Yes bro, you can afford it! Just be mindful of your budget."
-              : "⚠️ Hmm, you might want to hold off on that one, bro. After your upcoming commitments, this would put you in the red."
+              ? "Yes, you can afford it."
+              : "Skip it for now, bro. It puts you in the red once your bills go out."
           }`,
           timestamp: new Date().toISOString(),
           isDemoPreview: true,
@@ -193,13 +214,14 @@ export default function FinanceBroAIPage() {
         "Preparing actions",
       ]);
       animateAgentSteps(steps, () => {
+        const used = summary.totalMonthlyExpenses / profile.monthlyBudget;
         const assistantMsg: ChatMessage = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `Bro, here's your budget breakdown:\n\n🐷 Monthly Budget: ${formatRM(profile.monthlyBudget)}\n💸 Spent So Far: ${formatRM(summary.totalMonthlyExpenses)}\n💰 Budget Remaining: ${formatRM(summary.budgetRemaining)}\n📊 Usage: ${Math.round((summary.totalMonthlyExpenses / profile.monthlyBudget) * 100)}%\n\n${
-            summary.totalMonthlyExpenses / profile.monthlyBudget > 0.8
-              ? "⚠️ You're using more than 80% of your budget. Consider reducing non-essential spending."
-              : "✅ You're on track with your budget. Keep it up, bro!"
+          content: `Monthly budget: ${formatRM(profile.monthlyBudget)}\nSpent: ${formatRM(summary.totalMonthlyExpenses)}\nRemaining: ${formatRM(summary.budgetRemaining)}\nUsed: ${Math.round(used * 100)}%\n\n${
+            used > 0.8
+              ? "You've used more than 80% and the month isn't over. Cut the non-essentials until payday."
+              : "You're on track."
           }`,
           timestamp: new Date().toISOString(),
           isDemoPreview: true,
@@ -222,7 +244,7 @@ export default function FinanceBroAIPage() {
         const assistantMsg: ChatMessage = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `Bro, I'll show you your upcoming commitments in the Commitments page. You have ${formatRM(summary.upcomingCommitments)} in upcoming payments. Head over to the Commitments tab to see the full list and mark them as paid when ready.`,
+          content: `You have ${formatRM(summary.upcomingCommitments)} in bills still due. The Commitments tab lists each one, and you can mark them paid there.`,
           timestamp: new Date().toISOString(),
           isDemoPreview: true,
           agentSteps: steps.map((s) => ({ ...s, status: "completed" as const })),
@@ -237,7 +259,7 @@ export default function FinanceBroAIPage() {
       const assistantMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: "assistant",
-        content: `Bro, I hear you! In the full version, I'll be able to process that request with real AI. For now, try asking me about your balance, whether you can afford something, your budget, or tell me about an expense like "Bro, I spent RM59 today."`,
+        content: `I can't handle that one yet. Ask about your balance, your budget or whether you can afford something, or log a spend like "Bro, I spent RM59 today."`,
         timestamp: new Date().toISOString(),
         isDemoPreview: true,
       };
@@ -258,21 +280,21 @@ export default function FinanceBroAIPage() {
   function getStepDescription(label: string): string {
     switch (label) {
       case "Understanding request":
-        return "Parsing user intent and extracting key information";
+        return "Reading the amount and what you want done";
       case "Planning tasks":
-        return "Determining what actions are needed";
+        return "Working out which records to touch";
       case "Retrieving financial records":
-        return "Fetching transactions, balances, and commitments";
+        return "Fetching transactions, balance and bills";
       case "Analyzing information":
-        return "Computing projections and affordability";
+        return "Running the numbers";
       case "Preparing actions":
-        return "Building transaction preview for confirmation";
+        return "Drafting the change for you to review";
       case "Awaiting approval":
-        return "Waiting for user to confirm or cancel";
+        return "Nothing is saved until you confirm";
       case "Executing actions":
-        return "Applying changes to financial records";
+        return "Saving the change";
       case "Verifying results":
-        return "Confirming data integrity after action";
+        return "Re-checking the totals";
       default:
         return "";
     }
@@ -283,6 +305,8 @@ export default function FinanceBroAIPage() {
     const interval = setInterval(() => {
       if (currentStep >= steps.length) {
         clearInterval(interval);
+        // Swap the live progress card for the final answer.
+        setMessages((prev) => prev.filter((m) => !m.id.startsWith("agent-progress")));
         onComplete();
         return;
       }
@@ -291,7 +315,7 @@ export default function FinanceBroAIPage() {
         if (last && last.id.startsWith("agent-progress")) {
           const updatedSteps = [...steps].map((s, i) => ({
             ...s,
-            status: (i < currentStep + 1 ? "completed" : i === currentStep ? "active" : "pending") as AgentExecutionStep["status"],
+            status: (i < currentStep ? "completed" : i === currentStep ? "active" : "pending") as AgentExecutionStep["status"],
           }));
           return [...prev.slice(0, -1), { ...last, agentSteps: updatedSteps }];
         } else {
@@ -327,99 +351,90 @@ export default function FinanceBroAIPage() {
       description: preview.description,
     });
 
-    // Remove the preview message and add a success message
-    setMessages((prev) => {
-      const filtered = prev.filter((m) => m.id !== messageId);
-      return [
-        ...filtered,
-        {
+    setMessages((prev) =>
+      prev
+        .map((m) => (m.id === messageId ? { ...m, transactionPreview: undefined } : m))
+        .concat({
           id: `success-${Date.now()}`,
           role: "assistant" as const,
-          content: `✅ Transaction confirmed and added!\n\nAmount: ${formatRM(preview.amount)}\nType: ${preview.type}\nCategory: ${preview.category}\n\nYour balance has been updated. Current balance: ${formatRM(summary.currentBalance - preview.amount)}`,
+          content: `Saved: ${formatRM(preview.amount)} ${preview.type} under ${preview.category}.\nNew balance: ${formatRM(summary.currentBalance - preview.amount)}`,
           timestamp: new Date().toISOString(),
           isDemoPreview: true,
           agentSteps: [
             { id: "ex1", step: 1, label: "Executing actions", status: "completed" as const },
             { id: "ex2", step: 2, label: "Verifying results", status: "completed" as const },
           ],
-        },
-      ];
-    });
+        })
+    );
   };
 
   const handleCancelTransaction = (messageId: string) => {
-    setMessages((prev) => {
-      const filtered = prev.filter((m) => m.id !== messageId);
-      return [
-        ...filtered,
-        {
+    setMessages((prev) =>
+      prev
+        .map((m) => (m.id === messageId ? { ...m, transactionPreview: undefined } : m))
+        .concat({
           id: `cancel-${Date.now()}`,
           role: "assistant" as const,
-          content: "❌ Transaction cancelled. No changes were made to your records.",
+          content: "Cancelled. Nothing was saved.",
           timestamp: new Date().toISOString(),
           isDemoPreview: true,
-        },
-      ];
-    });
+        })
+    );
   };
 
+  const hasProgressCard = messages.some((m) => m.id.startsWith("agent-progress"));
+
   return (
-    <div className="mx-auto max-w-4xl p-4 sm:p-6 animate-fade-in">
-      <div className="flex flex-col" style={{ height: "calc(100vh - 7rem)" }}>
-        {/* Header */}
-        <div className="mb-4 flex items-center gap-3 rounded-2xl border border-navy-200 bg-gradient-to-r from-navy-800 to-navy-950 p-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-400 to-teal-600 shadow-lg">
-            <Bot className="h-6 w-6 text-white" />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-base font-bold text-white">FinanceBro AI</h2>
-            <p className="text-xs text-teal-300">Your agentic financial copilot · Demo Preview</p>
-          </div>
-          <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse-soft" />
-            Online
+    <div className="mx-auto flex h-[calc(100dvh-var(--topbar-h)-var(--tabbar-h))] max-w-3xl flex-col">
+      {/* Conversation */}
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6">
+        <div className="pb-2 pt-2 text-center">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-[rgb(20_168_152)] to-[rgb(6_78_72)] text-white shadow-card">
+            <Sparkles className="h-6 w-6" />
           </span>
+          <h1 className="mt-2 text-title3">FinanceBro AI</h1>
+          <p className="text-footnote text-label-2">Demo · replies are simulated</p>
         </div>
 
-        {/* Chat area */}
-        <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="space-y-4">
-            {messages.map((msg) => (
-              <ChatMessageBubble
-                key={msg.id}
-                message={msg}
-                onConfirm={() => msg.transactionPreview && handleConfirmTransaction(msg.id, msg.transactionPreview)}
-                onCancel={() => handleCancelTransaction(msg.id)}
-              />
-            ))}
-            {isProcessing && !messages.some((m) => m.id.startsWith("agent-progress")) && (
-              <TypingIndicator />
-            )}
-            <div ref={messagesEndRef} />
-          </div>
+        <div className="space-y-2 py-4">
+          {messages.map((msg, i) => (
+            <ChatMessageBubble
+              key={msg.id}
+              message={msg}
+              grouped={i > 0 && messages[i - 1].role === msg.role}
+              onConfirm={() => msg.transactionPreview && handleConfirmTransaction(msg.id, msg.transactionPreview)}
+              onCancel={() => handleCancelTransaction(msg.id)}
+            />
+          ))}
+          {isProcessing && !hasProgressCard && <TypingIndicator />}
+          <div ref={messagesEndRef} />
         </div>
+      </div>
 
-        {/* Suggested prompts */}
+      {/* Composer on a translucent layer; the thread scrolls underneath */}
+      <div className="material material-edge-t px-4 pb-3 pt-2 sm:px-6">
         {showSuggestions && messages.length <= 1 && (
-          <div className="mt-3 space-y-2">
-            <p className="text-xs font-medium text-slate-400">Try these prompts:</p>
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTED_PROMPTS.map((prompt, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSend(prompt)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-navy-700 hover:border-teal-300 hover:bg-teal-50 transition-all"
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
+          <div className="no-scrollbar -mx-4 mb-2 flex gap-2 overflow-x-auto px-4 sm:-mx-6 sm:px-6">
+            {SUGGESTED_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                onClick={() => handleSend(prompt)}
+                className="press shrink-0 rounded-full bg-surface px-3.5 py-2 text-subhead text-label shadow-card ring-1 ring-[color:var(--separator)]"
+              >
+                {prompt}
+              </button>
+            ))}
           </div>
         )}
-
-        {/* Input area */}
-        <div className="mt-3 flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-3 focus-within:border-teal-400 focus-within:ring-2 focus-within:ring-teal-400/20 transition-all">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSend();
+          }}
+          className="flex items-end gap-2 rounded-[1.4rem] bg-surface py-1.5 pl-4 pr-1.5 ring-1 ring-[color:var(--separator)] transition-shadow focus-within:shadow-[0_0_0_3px_rgb(var(--accent)/0.3)]"
+        >
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -428,20 +443,20 @@ export default function FinanceBroAIPage() {
                 handleSend();
               }
             }}
-            placeholder="Ask FinanceBro AI anything..."
+            placeholder="Message FinanceBro"
+            aria-label="Message FinanceBro"
             rows={1}
-            className="flex-1 resize-none bg-transparent text-sm text-navy-900 placeholder:text-slate-400 focus:outline-none"
-            style={{ maxHeight: "120px" }}
+            className="max-h-[120px] flex-1 resize-none self-center bg-transparent py-1 text-body text-label outline-none placeholder:text-label-3"
           />
-          <Button
-            onClick={() => handleSend()}
+          <button
+            type="submit"
             disabled={!input.trim() || isProcessing}
-            size="md"
-            icon={<Send className="h-4 w-4" />}
+            aria-label="Send"
+            className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-opacity disabled:bg-gray/30"
           >
-            Send
-          </Button>
-        </div>
+            <ArrowUp className="h-[18px] w-[18px]" strokeWidth={2.75} />
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -449,10 +464,12 @@ export default function FinanceBroAIPage() {
 
 function ChatMessageBubble({
   message,
+  grouped,
   onConfirm,
   onCancel,
 }: {
   message: ChatMessage;
+  grouped: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -460,83 +477,53 @@ function ChatMessageBubble({
 
   if (isUser) {
     return (
-      <div className="flex justify-end animate-slide-in-right">
-        <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-gradient-to-br from-teal-600 to-teal-700 px-4 py-2.5 text-sm text-white shadow-sm">
+      <div className={`flex justify-end animate-rise ${grouped ? "" : "pt-2"}`}>
+        <div className="max-w-[78%] whitespace-pre-line rounded-[1.25rem] rounded-br-md bg-accent px-3.5 py-2 text-body text-white">
           {message.content}
         </div>
       </div>
     );
   }
 
+  // Live agent progress
+  if (message.agentSteps && message.content === "") {
+    return (
+      <div className={`animate-rise ${grouped ? "" : "pt-2"}`}>
+        <div className="max-w-[85%] rounded-[1.25rem] rounded-bl-md bg-gray/12 px-4 py-3 sm:max-w-sm">
+          <ol className="space-y-2">
+            {message.agentSteps.map((step) => (
+              <AgentStepItem key={step.id} step={step} />
+            ))}
+          </ol>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex gap-3 animate-slide-up">
-      {/* AI Avatar */}
-      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-navy-700 to-navy-950 shadow-sm">
-        <Bot className="h-5 w-5 text-teal-300" />
+    <div className={`flex flex-col items-start gap-2 animate-rise ${grouped ? "" : "pt-2"}`}>
+      <div className="tabular max-w-[85%] whitespace-pre-line rounded-[1.25rem] rounded-bl-md bg-gray/12 px-3.5 py-2 text-body text-label">
+        {message.content}
       </div>
 
-      <div className="flex-1 space-y-3">
-        {/* Agent Steps */}
-        {message.agentSteps && message.agentSteps.length > 0 && message.content === "" && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
-              <span className="text-xs font-semibold text-navy-700">Agent working...</span>
-            </div>
-            <div className="space-y-2">
-              {message.agentSteps.map((step) => (
-                <AgentStepItem key={step.id} step={step} />
-              ))}
-            </div>
-          </div>
-        )}
+      {message.transactionPreview && (
+        <TransactionPreviewCard preview={message.transactionPreview} onConfirm={onConfirm} onCancel={onCancel} />
+      )}
 
-        {/* Content */}
-        {message.content && (
-          <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-sm text-navy-800 shadow-sm">
-            <div className="whitespace-pre-line">{message.content}</div>
-            {message.isDemoPreview && (
-              <div className="mt-2 flex items-center gap-1 border-t border-slate-100 pt-2">
-                <Sparkles className="h-3 w-3 text-amber-400" />
-                <span className="text-[10px] font-medium text-amber-500">Demo Preview — Simulated response</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Transaction Preview */}
-        {message.transactionPreview && (
-          <TransactionPreviewCard
-            preview={message.transactionPreview}
-            onConfirm={onConfirm}
-            onCancel={onCancel}
-          />
-        )}
-
-        {/* Completed Agent Steps (shown after content) */}
-        {message.agentSteps && message.agentSteps.length > 0 && message.content !== "" && (
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-              <span className="text-xs font-semibold text-emerald-700">Agent workflow completed</span>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {message.agentSteps.map((step) => {
-                const Icon = AGENT_STEP_ICONS[step.label] || CheckCircle2;
-                return (
-                  <span
-                    key={step.id}
-                    className="flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[10px] font-medium text-emerald-700"
-                  >
-                    <Icon className="h-3 w-3" />
-                    {step.label}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
+      {message.agentSteps && message.agentSteps.length > 0 && (
+        <details className="group px-1 text-footnote text-label-2">
+          <summary className="flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden">
+            <Check className="h-3.5 w-3.5 text-positive" strokeWidth={3} />
+            {message.agentSteps.length} steps
+            <ChevronRight className="h-3.5 w-3.5 transition-transform duration-300 ease-spring group-open:rotate-90" />
+          </summary>
+          <ol className="mt-1.5 space-y-1 pl-5">
+            {message.agentSteps.map((s) => (
+              <li key={s.id}>{s.label}</li>
+            ))}
+          </ol>
+        </details>
+      )}
     </div>
   );
 }
@@ -544,40 +531,32 @@ function ChatMessageBubble({
 function AgentStepItem({ step }: { step: AgentExecutionStep }) {
   const Icon = AGENT_STEP_ICONS[step.label] || CheckCircle2;
 
-  if (step.status === "completed") {
-    return (
-      <div className="flex items-center gap-2 agent-step-enter">
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100">
-          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-        </div>
-        <span className="text-xs font-medium text-slate-400 line-through">{step.label}</span>
-      </div>
-    );
-  }
-
-  if (step.status === "active") {
-    return (
-      <div className="flex items-center gap-2 agent-step-enter">
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-100">
-          <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
-        </div>
-        <div>
-          <span className="text-xs font-semibold text-navy-700">{step.label}</span>
-          {step.description && (
-            <p className="text-[10px] text-slate-400">{step.description}</p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-center gap-2 opacity-50">
-      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100">
-        <Icon className="h-3.5 w-3.5 text-slate-400" />
-      </div>
-      <span className="text-xs font-medium text-slate-400">{step.label}</span>
-    </div>
+    <li className="flex items-start gap-2.5">
+      <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center">
+        {step.status === "completed" ? (
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-positive text-white">
+            <Check className="h-3 w-3" strokeWidth={3.5} />
+          </span>
+        ) : step.status === "active" ? (
+          <Loader2 className="h-4 w-4 animate-spin text-accent-text" />
+        ) : (
+          <Icon className="h-4 w-4 text-label-3" />
+        )}
+      </span>
+      <span className="min-w-0">
+        <span
+          className={`block text-subhead transition-colors duration-200 ${
+            step.status === "pending" ? "text-label-3" : step.status === "active" ? "font-medium text-label" : "text-label-2"
+          }`}
+        >
+          {step.label}
+        </span>
+        {step.status === "active" && step.description && (
+          <span className="block text-footnote text-label-2 animate-fade">{step.description}</span>
+        )}
+      </span>
+    </li>
   );
 }
 
@@ -591,50 +570,32 @@ function TransactionPreviewCard({
   onCancel: () => void;
 }) {
   return (
-    <div className="rounded-xl border-2 border-teal-200 bg-gradient-to-br from-white to-teal-50/30 p-4 animate-slide-up">
-      <div className="mb-3 flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-100">
-          <Receipt className="h-4 w-4 text-teal-600" />
-        </div>
-        <h4 className="text-sm font-bold text-navy-900">Transaction Preview</h4>
-        <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-600">
-          Awaiting Approval
-        </span>
+    <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-surface shadow-float ring-1 ring-[color:var(--separator)] animate-rise">
+      <div className="px-4 pb-3 pt-4">
+        <p className="text-footnote font-medium text-label-2">New {preview.type}</p>
+        <p className={`tabular text-title1 ${preview.type === "income" ? "text-positive" : "text-label"}`}>
+          {formatRM(preview.amount)}
+        </p>
       </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-lg bg-white p-3">
-          <p className="text-[10px] font-medium text-slate-400">Amount</p>
-          <p className="text-lg font-bold text-rose-600">{formatRM(preview.amount)}</p>
-        </div>
-        <div className="rounded-lg bg-white p-3">
-          <p className="text-[10px] font-medium text-slate-400">Type</p>
-          <p className="text-sm font-semibold capitalize text-navy-900">{preview.type}</p>
-        </div>
-        <div className="rounded-lg bg-white p-3">
-          <p className="text-[10px] font-medium text-slate-400">Category</p>
-          <p className="text-sm font-semibold text-navy-900">{preview.category}</p>
-        </div>
-        <div className="rounded-lg bg-white p-3">
-          <p className="text-[10px] font-medium text-slate-400">Account</p>
-          <p className="text-sm font-semibold text-navy-900">{preview.account}</p>
-        </div>
-      </div>
-
-      {preview.description && (
-        <div className="mt-2 rounded-lg bg-white p-3">
-          <p className="text-[10px] font-medium text-slate-400">Description</p>
-          <p className="text-sm text-navy-700">{preview.description}</p>
-        </div>
-      )}
-
-      <div className="mt-4 flex gap-2">
-        <Button variant="success" size="md" onClick={onConfirm} icon={<Check className="h-4 w-4" />} className="flex-1">
-          Confirm Transaction
-        </Button>
-        <Button variant="outline" size="md" onClick={onCancel} icon={<X className="h-4 w-4" />} className="flex-1">
+      <dl className="grouped mx-4 text-subhead">
+        {[
+          ["Category", preview.category],
+          ["Account", preview.account],
+          ...(preview.description ? [["Note", preview.description]] : []),
+        ].map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-4 py-2.5">
+            <dt className="text-label-2">{k}</dt>
+            <dd className="truncate text-label">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="grid grid-cols-2 gap-2 p-3">
+        <button onClick={onCancel} className="press h-10 rounded-xl bg-gray/12 text-headline text-label">
           Cancel
-        </Button>
+        </button>
+        <button onClick={onConfirm} className="press h-10 rounded-xl bg-accent text-headline text-white">
+          Confirm
+        </button>
       </div>
     </div>
   );
@@ -642,14 +603,11 @@ function TransactionPreviewCard({
 
 function TypingIndicator() {
   return (
-    <div className="flex gap-3">
-      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-navy-700 to-navy-950">
-        <Bot className="h-5 w-5 text-teal-300" />
-      </div>
-      <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <span className="typing-dot h-2 w-2 rounded-full bg-teal-400" />
-        <span className="typing-dot h-2 w-2 rounded-full bg-teal-400" />
-        <span className="typing-dot h-2 w-2 rounded-full bg-teal-400" />
+    <div className="pt-2 animate-fade" aria-label="FinanceBro is typing">
+      <div className="inline-flex items-center gap-1 rounded-[1.25rem] rounded-bl-md bg-gray/12 px-4 py-3">
+        <span className="typing-dot h-2 w-2 rounded-full bg-label-3" />
+        <span className="typing-dot h-2 w-2 rounded-full bg-label-3" />
+        <span className="typing-dot h-2 w-2 rounded-full bg-label-3" />
       </div>
     </div>
   );

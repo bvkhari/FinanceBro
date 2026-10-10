@@ -8,21 +8,26 @@ interface CardProps {
   title?: string;
   action?: ReactNode;
   icon?: ReactNode;
+  /** Drop the inner padding so inset-grouped rows can run edge to edge. */
+  flush?: boolean;
 }
 
-export function Card({ children, className = "", title, action, icon }: CardProps) {
+// Inset-grouped section: the header sits outside the surface, like iOS Settings.
+export function Card({ children, className = "", title, action, icon, flush }: CardProps) {
   return (
-    <div className={`rounded-2xl border border-slate-200 bg-white p-5 ${className}`}>
+    <section className={`flex flex-col ${className}`}>
       {(title || action) && (
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <header className="mb-2 flex min-h-8 items-center justify-between gap-3 px-1">
+          <h2 className="flex items-center gap-2 text-title3 text-label">
             {icon}
-            <h3 className="text-sm font-bold text-navy-900">{title}</h3>
-          </div>
+            {title}
+          </h2>
           {action}
-        </div>
+        </header>
       )}
-      {children}
-    </div>
+      <div className={`flex-1 overflow-hidden rounded-2xl bg-surface shadow-card ${flush ? "" : "p-4"}`}>
+        {children}
+      </div>
+    </section>
   );
 }

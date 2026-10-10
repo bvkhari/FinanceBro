@@ -25,6 +25,28 @@ const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,99}$/;
 
 export type AgentMode = "individual" | "business";
 
+/** A receipt photo or PDF sent with a message, base64-encoded. */
+export interface Attachment {
+  mediaType: string;
+  data: string;
+}
+
+export const ATTACHMENT_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+export const MAX_ATTACHMENTS = 3;
+/** Base64 characters per attachment (about 2.2 MB of file); keeps a request under Vercel's 4.5 MB body limit. */
+export const MAX_ATTACHMENT_CHARS = 3_000_000;
+
+/** Checks attachments from a request; returns an error message, or null when they are fine. */
+export function attachmentError(list: unknown): string | null {
+  if (list === undefined) return null;
+  if (!Array.isArray(list) || list.length > MAX_ATTACHMENTS) return `Send up to ${MAX_ATTACHMENTS} receipts at a time.`;
+  for (const a of list) {
+    if (!a || typeof a.data !== "string" || !ATTACHMENT_TYPES.includes(a.mediaType)) return "Receipts must be JPEG, PNG, WebP or PDF.";
+    if (a.data.length > MAX_ATTACHMENT_CHARS || !/^[A-Za-z0-9+/=]+$/.test(a.data)) return "That receipt is too large or unreadable.";
+  }
+  return null;
+}
+
 /**
  * WorkBuddy's agent engine. An npm install (@tencent-ai/codebuddy-code) comes before the copy
  * bundled in the WorkBuddy app: that copy is headless-only and can't run /login.
@@ -59,6 +81,7 @@ export function runAgent(opts: {
   mcpUrl: string;
   mcpToken?: string;
   instructions: string;
+  attachments?: Attachment[];
   signal?: AbortSignal;
 }): ReadableStream<Uint8Array> {
   const mcpConfig = JSON.stringify({
@@ -77,7 +100,9 @@ export function runAgent(opts: {
 
   const sessionId = opts.sessionId ?? randomUUID();
   const args = [
-    "-p", opts.message,
+    // The message goes in on stdin as stream-json, so receipt images and PDFs can travel with it.
+    "-p",
+    "--input-format", "stream-json",
     "--output-format", "stream-json",
     "--verbose",
     // Locked down three ways: one harmless built-in tool (an empty --tools is ignored), only the
@@ -102,8 +127,19 @@ export function runAgent(opts: {
       CODEBUDDY_DEFER_TOOL_LOADING: "false",
       CODEBUDDY_DISABLE_AUTO_MEMORY: "1",
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
+
+  const content = [
+    ...(opts.attachments ?? []).map((a) =>
+      a.mediaType === "application/pdf"
+        ? { type: "document", source: { type: "base64", media_type: a.mediaType, data: a.data } }
+        : { type: "image", source: { type: "base64", media_type: a.mediaType, data: a.data } }
+    ),
+    { type: "text", text: opts.message },
+  ];
+  child.stdin.on("error", () => {}); // the child may exit before reading everything
+  child.stdin.end(`${JSON.stringify({ type: "user", message: { role: "user", content } })}\n`);
 
   const encoder = new TextEncoder();
   return new ReadableStream({

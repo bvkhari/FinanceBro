@@ -6,7 +6,7 @@
 // AGENT_SERVER_URL is set.
 //
 //   POST /chat    Authorization: Bearer $AGENT_SERVER_SECRET
-//                 {message, mode, sessionId?, mcpUrl} → server-sent events
+//                 {message, mode, sessionId?, mcpUrl, attachments?} → server-sent events
 //   GET  /health  {ok, engine}
 //
 // Env: AGENT_SERVER_SECRET (required), PORT (8787), HOST (0.0.0.0),
@@ -19,7 +19,7 @@
 import http from "node:http";
 import { Readable } from "node:stream";
 import { timingSafeEqual } from "node:crypto";
-import { findEngine, isValidSessionId, runAgent } from "../src/lib/agent/runner.ts";
+import { attachmentError, findEngine, isValidSessionId, runAgent } from "../src/lib/agent/runner.ts";
 import { AGENT_INSTRUCTIONS } from "../src/lib/agent/instructions.ts";
 
 const SECRET = process.env.AGENT_SERVER_SECRET ?? "";
@@ -52,7 +52,7 @@ async function readJson(req) {
   let raw = "";
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > 64_000) throw new Error("Body too large");
+    if (raw.length > 10_000_000) throw new Error("Body too large"); // up to 3 receipts
   }
   return JSON.parse(raw);
 }
@@ -72,12 +72,15 @@ const server = http.createServer(async (req, res) => {
   } catch {
     return json(res, 400, { error: "Bad JSON" });
   }
-  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const hasAttachments = Array.isArray(body.attachments) && body.attachments.length > 0;
+  const message = (typeof body.message === "string" ? body.message.trim() : "") || (hasAttachments ? "Here's my receipt. Please record it." : "");
   const mode = body.mode === "business" ? "business" : "individual";
   const mcpUrl = process.env.FINANCEBRO_MCP_URL || body.mcpUrl;
   if (!message || message.length > 8000) return json(res, 400, { error: "Bad message" });
   if (body.sessionId && !isValidSessionId(body.sessionId)) return json(res, 400, { error: "Bad session id" });
   if (typeof mcpUrl !== "string" || !/^https?:\/\//.test(mcpUrl)) return json(res, 400, { error: "Bad mcpUrl" });
+  const badAttachments = attachmentError(body.attachments);
+  if (badAttachments) return json(res, 400, { error: badAttachments });
 
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), RUN_TIMEOUT_MS);
@@ -94,6 +97,7 @@ const server = http.createServer(async (req, res) => {
     mcpUrl,
     mcpToken: process.env.MCP_TOKEN,
     instructions: AGENT_INSTRUCTIONS,
+    attachments: body.attachments,
     signal: abort.signal,
   });
   Readable.fromWeb(stream)

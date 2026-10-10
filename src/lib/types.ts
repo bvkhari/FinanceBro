@@ -86,6 +86,8 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   isDemoPreview?: boolean;
+  /** Receipts the user sent with the message (local preview URLs). */
+  attachments?: { url: string; name: string; kind: "image" | "pdf" }[];
   agentSteps?: AgentExecutionStep[];
   agentActions?: AgentAction[];
   transactionPreview?: TransactionPreviewData;

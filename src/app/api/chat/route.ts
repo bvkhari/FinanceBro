@@ -9,7 +9,7 @@
 // ============================================================
 
 import { AGENT_INSTRUCTIONS } from "@/lib/agent/instructions";
-import { findEngine, isValidSessionId, runAgent } from "@/lib/agent/runner";
+import { attachmentError, findEngine, isValidSessionId, runAgent, type Attachment } from "@/lib/agent/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,13 +18,17 @@ export const maxDuration = 300;
 const SSE_HEADERS = { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive" };
 
 export async function POST(request: Request) {
-  let body: { message?: string; mode?: string; sessionId?: string };
+  let body: { message?: string; mode?: string; sessionId?: string; attachments?: Attachment[] };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Bad JSON" }, { status: 400 });
   }
-  const message = body.message?.trim();
+  const badAttachments = attachmentError(body.attachments);
+  if (badAttachments) return Response.json({ error: badAttachments }, { status: 400 });
+  const attachments = body.attachments ?? [];
+  // A receipt sent on its own still needs a message for the agent.
+  const message = body.message?.trim() || (attachments.length ? "Here's my receipt. Please record it." : "");
   const mode = body.mode === "business" ? "business" : "individual";
   if (!message) return Response.json({ error: "Empty message" }, { status: 400 });
   if (message.length > 8000) return Response.json({ error: "Message too long" }, { status: 400 });
@@ -44,7 +48,7 @@ export async function POST(request: Request) {
           // Free ngrok domains otherwise answer some requests with a browser warning page.
           "ngrok-skip-browser-warning": "1",
         },
-        body: JSON.stringify({ message, mode, sessionId: body.sessionId, mcpUrl }),
+        body: JSON.stringify({ message, mode, sessionId: body.sessionId, mcpUrl, attachments }),
         signal: request.signal,
       });
       if (!res.ok || !res.body) {
@@ -69,6 +73,7 @@ export async function POST(request: Request) {
     mcpUrl,
     mcpToken: process.env.MCP_TOKEN,
     instructions: AGENT_INSTRUCTIONS,
+    attachments,
     signal: request.signal,
   });
   return new Response(stream, { headers: SSE_HEADERS });

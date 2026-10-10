@@ -8,8 +8,12 @@ import { formatRM, formatDateShort, todayISO } from "@/lib/utils";
 import { answerDebtQuestion } from "@/lib/debt/agent";
 import { buildPayments } from "@/lib/debt/payments";
 import { TOOL_LABELS } from "@/lib/agent/labels";
+import { prepareReceipt, type ReceiptDraft } from "@/lib/receipts";
 import {
   ArrowUp,
+  Paperclip,
+  X,
+  FileText,
   Sparkles,
   Brain,
   ListChecks,
@@ -50,7 +54,7 @@ function welcomeMessage(): ChatMessage {
   return {
     id: "welcome",
     role: "assistant",
-    content: `Hey bro, I'm FinanceBro, powered by WorkBuddy. Tell me what you spent or paid and I'll key it in. Ask whether you can afford something, or ask me to build you a plan. I work from your real records.`,
+    content: `Hey bro, I'm FinanceBro, powered by WorkBuddy. Tell me what you spent or paid, or snap a receipt with the paperclip, and I'll key it in. Ask whether you can afford something, or ask me to build you a plan. I work from your real records.`,
     timestamp: new Date().toISOString(),
     isDemoPreview: true,
   };
@@ -70,6 +74,25 @@ export default function FinanceBroAIPage() {
   // WorkBuddy agent conversation for the current profile; "offline" falls back to quick answers.
   const agentSession = useRef<string | undefined>(undefined);
   const [agentStatus, setAgentStatus] = useState<"unknown" | "ready" | "offline" | "signin">("unknown");
+  // Receipts picked but not sent yet.
+  const [receipts, setReceipts] = useState<ReceiptDraft[]>([]);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const addReceipts = async (files: FileList | null) => {
+    setReceiptError(null);
+    const room = 3 - receipts.length;
+    const picked = Array.from(files ?? []);
+    if (picked.length > room) setReceiptError("Up to 3 receipts per message.");
+    for (const file of picked.slice(0, Math.max(0, room))) {
+      try {
+        const draft = await prepareReceipt(file);
+        setReceipts((prev) => [...prev, draft]);
+      } catch (e) {
+        setReceiptError(e instanceof Error ? e.message : "That file couldn't be used.");
+      }
+    }
+  };
 
   // Switching mode starts a fresh conversation.
   const lastMode = useRef(mode);
@@ -106,16 +129,21 @@ export default function FinanceBroAIPage() {
 
   const handleSend = (text?: string) => {
     const userText = text || input.trim();
-    if (!userText || isProcessing) return;
+    // Suggestion chips send text only; the composer also sends any receipts picked.
+    const sent = text ? [] : receipts;
+    if ((!userText && sent.length === 0) || isProcessing) return;
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: "user",
       content: userText,
       timestamp: new Date().toISOString(),
+      attachments: sent.map((r) => ({ url: r.previewUrl, name: r.name, kind: r.kind })),
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    if (!text) setReceipts([]);
+    setReceiptError(null);
     setShowSuggestions(false);
     setIsProcessing(true);
 
@@ -124,9 +152,19 @@ export default function FinanceBroAIPage() {
       setIsProcessing(false);
     };
 
-    askWorkBuddy(userText, finish).then((handled) => {
-      // Agent unavailable: fall back to the built-in quick answers.
-      if (!handled) simulateAgentResponse(userText, finish);
+    askWorkBuddy(userText, sent, finish).then((handled) => {
+      if (handled) return;
+      // Agent unavailable: fall back to the built-in quick answers. Receipts need the agent.
+      if (sent.length > 0) {
+        finish({
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: "Reading receipts needs the WorkBuddy agent, and it isn't available right now. Try again in a bit, or add the expense on the Transactions page.",
+          timestamp: new Date().toISOString(),
+        });
+      } else {
+        simulateAgentResponse(userText, finish);
+      }
     });
   };
 
@@ -134,10 +172,16 @@ export default function FinanceBroAIPage() {
    * Sends the message to the WorkBuddy agent and shows its steps live.
    * Resolves false when the agent can't run here, so the caller can fall back.
    */
-  async function askWorkBuddy(userText: string, callback: (msg: ChatMessage) => void): Promise<boolean> {
+  async function askWorkBuddy(userText: string, sent: ReceiptDraft[], callback: (msg: ChatMessage) => void): Promise<boolean> {
     const progressId = `agent-progress-${Date.now()}`;
     const steps: AgentExecutionStep[] = [
-      { id: "think", step: 1, label: "Understanding request", status: "active", description: "WorkBuddy is reading your message" },
+      {
+        id: "think",
+        step: 1,
+        label: sent.length ? "Reading receipt" : "Understanding request",
+        status: "active",
+        description: sent.length ? "WorkBuddy is reading the shop, date and total" : "WorkBuddy is reading your message",
+      },
     ];
     const showSteps = () =>
       setMessages((prev) => {
@@ -151,11 +195,26 @@ export default function FinanceBroAIPage() {
       res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userText, mode, sessionId: agentSession.current }),
+        body: JSON.stringify({
+          message: userText,
+          mode,
+          sessionId: agentSession.current,
+          attachments: sent.length ? sent.map((r) => ({ mediaType: r.mediaType, data: r.data })) : undefined,
+        }),
       });
     } catch {
       setAgentStatus("offline");
       return false;
+    }
+    if (res.status === 400 || res.status === 413) {
+      const err = await res.json().catch(() => ({}));
+      callback({
+        id: `a-${Date.now()}`,
+        role: "assistant",
+        content: err.error || "That was too large to send. Try a smaller photo.",
+        timestamp: new Date().toISOString(),
+      });
+      return true;
     }
     if (!res.ok || !res.body) {
       setAgentStatus("offline");
@@ -568,13 +627,60 @@ export default function FinanceBroAIPage() {
             ))}
           </div>
         )}
+        {(receipts.length > 0 || receiptError) && (
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {receipts.map((r) => (
+              <div key={r.id} className="relative h-14 w-14 overflow-hidden rounded-xl bg-surface ring-1 ring-[color:var(--separator)] animate-rise">
+                {r.kind === "image" ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={r.previewUrl} alt={r.name} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="flex h-full w-full flex-col items-center justify-center gap-0.5 text-caption text-label-2">
+                    <FileText className="h-5 w-5" />
+                    PDF
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setReceipts((prev) => prev.filter((x) => x.id !== r.id))}
+                  aria-label={`Remove ${r.name}`}
+                  className="press absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white"
+                >
+                  <X className="h-3 w-3" strokeWidth={3} />
+                </button>
+              </div>
+            ))}
+            {receiptError && <p className="text-footnote text-negative">{receiptError}</p>}
+          </div>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleSend();
           }}
-          className="flex items-end gap-2 rounded-[1.4rem] bg-surface py-1.5 pl-4 pr-1.5 ring-1 ring-[color:var(--separator)] transition-shadow focus-within:shadow-[0_0_0_3px_rgb(var(--accent)/0.3)]"
+          className="flex items-end gap-1 rounded-[1.4rem] bg-surface py-1.5 pl-1.5 pr-1.5 ring-1 ring-[color:var(--separator)] transition-shadow focus-within:shadow-[0_0_0_3px_rgb(var(--accent)/0.3)]"
         >
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,application/pdf"
+            multiple
+            hidden
+            onChange={(e) => {
+              addReceipts(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={isProcessing || receipts.length >= 3}
+            aria-label="Add a receipt"
+            title="Add a receipt (photo or PDF)"
+            className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-label-2 transition-colors hover:bg-gray/12 disabled:opacity-40"
+          >
+            <Paperclip className="h-[18px] w-[18px]" />
+          </button>
           <textarea
             ref={inputRef}
             value={input}
@@ -585,14 +691,14 @@ export default function FinanceBroAIPage() {
                 handleSend();
               }
             }}
-            placeholder="Message FinanceBro"
+            placeholder={receipts.length ? "Add a note (optional)" : "Message FinanceBro"}
             aria-label="Message FinanceBro"
             rows={1}
             className="max-h-[120px] flex-1 resize-none self-center bg-transparent py-1 text-body text-label outline-none placeholder:text-label-3"
           />
           <button
             type="submit"
-            disabled={!input.trim() || isProcessing}
+            disabled={(!input.trim() && receipts.length === 0) || isProcessing}
             aria-label="Send"
             className="press flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-opacity disabled:bg-gray/30"
           >
@@ -619,10 +725,27 @@ function ChatMessageBubble({
 
   if (isUser) {
     return (
-      <div className={`flex justify-end animate-rise ${grouped ? "" : "pt-2"}`}>
-        <div className="max-w-[78%] whitespace-pre-line rounded-[1.25rem] rounded-br-md bg-accent px-3.5 py-2 text-body text-white">
-          {message.content}
-        </div>
+      <div className={`flex flex-col items-end gap-1 animate-rise ${grouped ? "" : "pt-2"}`}>
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="flex max-w-[78%] flex-wrap justify-end gap-1">
+            {message.attachments.map((a) =>
+              a.kind === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={a.url} src={a.url} alt={a.name} className="h-32 w-24 rounded-2xl object-cover ring-1 ring-[color:var(--separator)]" />
+              ) : (
+                <span key={a.url} className="flex items-center gap-1.5 rounded-2xl bg-gray/12 px-3 py-2 text-subhead text-label">
+                  <FileText className="h-4 w-4 text-label-2" />
+                  {a.name}
+                </span>
+              )
+            )}
+          </div>
+        )}
+        {message.content && (
+          <div className="max-w-[78%] whitespace-pre-line rounded-[1.25rem] rounded-br-md bg-accent px-3.5 py-2 text-body text-white">
+            {message.content}
+          </div>
+        )}
       </div>
     );
   }

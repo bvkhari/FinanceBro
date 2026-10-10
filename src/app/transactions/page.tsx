@@ -2,7 +2,9 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useFinance } from "@/lib/FinanceContext";
-import { Transaction, TransactionType } from "@/lib/types";
+import { NewTransaction, Transaction, TransactionType } from "@/lib/types";
+import { TRANSACTION_CATEGORIES } from "@/lib/categories";
+import { DEBT_REPAYMENT, isSpending } from "@/lib/cashflow";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input, Select, TextArea } from "@/components/ui/Input";
@@ -11,38 +13,6 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { formatRM, formatDateShort, todayISO } from "@/lib/utils";
 import { Plus, Search, TrendingUp, TrendingDown, X, ChevronRight, ChevronDown, Trash2 } from "lucide-react";
 
-const INDIVIDUAL_CATEGORIES = [
-  "Food",
-  "Transportation",
-  "Shopping",
-  "Education",
-  "Entertainment",
-  "Subscriptions",
-  "Rent",
-  "Utilities",
-  "Allowance",
-  "Salary",
-  "Part-time income",
-  "Uncategorised",
-  "Other",
-];
-
-const BUSINESS_CATEGORIES = [
-  "Sales Revenue",
-  "Delivery Sales",
-  "Service Income",
-  "Other Business Income",
-  "Ingredients",
-  "Packaging",
-  "Wages",
-  "Supplies",
-  "Operating Expenses",
-  "Utilities",
-  "Rent",
-  "Marketing",
-  "Uncategorised",
-  "Other",
-];
 
 type Sort = "date-desc" | "date-asc" | "amount-desc" | "amount-asc";
 
@@ -55,10 +25,11 @@ export default function TransactionsPage() {
   const [filterType, setFilterType] = useState<"" | TransactionType>("");
   const [sortBy, setSortBy] = useState<Sort>("date-desc");
 
-  const categories = mode === "individual" ? INDIVIDUAL_CATEGORIES : BUSINESS_CATEGORIES;
+  const categories = TRANSACTION_CATEGORIES[mode];
 
   const totalIncome = transactions.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
-  const totalExpenses = transactions.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  // Debt repayments aren't spending (the purchase was already counted); purchases on credit are.
+  const totalExpenses = transactions.filter(isSpending).reduce((s, t) => s + t.amount, 0);
   const net = totalIncome - totalExpenses;
 
   const filteredTransactions = useMemo(() => {
@@ -242,6 +213,16 @@ export default function TransactionsPage() {
                     <span className="block truncate text-body text-label">{t.name}</span>
                     <span className="block truncate text-footnote text-label-2">
                       {t.category} · {formatDateShort(t.date)}
+                      {!t.cashEffect && (
+                        <span className="ml-1.5 rounded-full bg-info/12 px-1.5 py-px text-caption font-medium text-info" title="Bought on credit: counts as spending, but no cash has left your account yet">
+                          On credit
+                        </span>
+                      )}
+                      {t.category === DEBT_REPAYMENT && (
+                        <span className="ml-1.5 rounded-full bg-gray/12 px-1.5 py-px text-caption font-medium text-label-2" title="Cash paid towards a debt. The purchase was counted as spending when it was made.">
+                          Not spending
+                        </span>
+                      )}
                       {t.description ? <span className="hidden md:inline"> · {t.description}</span> : null}
                     </span>
                   </span>
@@ -322,7 +303,7 @@ interface TransactionModalProps {
   onClose: () => void;
   categories: string[];
   editingTransaction: Transaction | null;
-  onSave: (data: Omit<Transaction, "id" | "createdAt" | "mode">) => void;
+  onSave: (data: NewTransaction) => void;
   onDelete: (id: string) => void;
 }
 

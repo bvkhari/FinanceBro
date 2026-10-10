@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useFinance } from "@/lib/FinanceContext";
 import { ChatMessage, AgentExecutionStep, TransactionPreviewData, TransactionType } from "@/lib/types";
-import { formatRM } from "@/lib/utils";
+import { formatRM, formatDateShort } from "@/lib/utils";
 import {
   ArrowUp,
   Sparkles,
@@ -49,7 +49,9 @@ function welcomeMessage(): ChatMessage {
 }
 
 export default function FinanceBroAIPage() {
-  const { summary, mode, addTransaction, profile } = useFinance();
+  const { summary, mode, addTransaction, profile, cashFlow } = useFinance();
+  // Amounts "due" only count what falls due by the end of this month.
+  const dueBy = formatDateShort(cashFlow.monthEnd);
   const [messages, setMessages] = useState<ChatMessage[]>(() => [welcomeMessage()]);
   const [input, setInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -162,7 +164,7 @@ export default function FinanceBroAIPage() {
         const assistantMsg: ChatMessage = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `Here's where you stand.\n\nBalance: ${formatRM(summary.currentBalance)}\nSpent this month: ${formatRM(summary.totalMonthlyExpenses)}\nBills still due: ${formatRM(summary.upcomingCommitments)}\nLeft after bills: ${formatRM(summary.projectedRemainingBalance)}\n\n${
+          content: `Here's where you stand.\n\nBalance: ${formatRM(summary.currentBalance)}\nSpent this month: ${formatRM(summary.totalMonthlyExpenses)}\nBills and repayments due by ${dueBy}: ${formatRM(summary.upcomingCommitments)}\nLeft after those: ${formatRM(summary.projectedRemainingBalance)}\n\n${
             summary.projectedRemainingBalance > 0
               ? "You can cover every bill that's due."
               : "You'll come up short once the bills go out. Hold off on anything you don't need."
@@ -191,7 +193,7 @@ export default function FinanceBroAIPage() {
         const assistantMsg: ChatMessage = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `Balance: ${formatRM(summary.currentBalance)}\nBills still due: ${formatRM(summary.upcomingCommitments)}\nLeft after bills: ${formatRM(summary.projectedRemainingBalance)}\n\nSpend ${formatRM(amount)} and that drops to ${formatRM(afterSpend)}.\n\n${
+          content: `Balance: ${formatRM(summary.currentBalance)}\nBills and repayments due by ${dueBy}: ${formatRM(summary.upcomingCommitments)}\nLeft after those: ${formatRM(summary.projectedRemainingBalance)}\n\nSpend ${formatRM(amount)} and that drops to ${formatRM(afterSpend)}.\n\n${
             canAfford
               ? "Yes, you can afford it."
               : "Skip it for now, bro. It puts you in the red once your bills go out."
@@ -244,7 +246,7 @@ export default function FinanceBroAIPage() {
         const assistantMsg: ChatMessage = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `You have ${formatRM(summary.upcomingCommitments)} in bills still due. The Commitments tab lists each one, and you can mark them paid there.`,
+          content: `You have ${formatRM(summary.upcomingCommitments)} in bills and debt repayments due by ${dueBy}. The Payments tab on the Debts page lists each one, and you can record payments there.`,
           timestamp: new Date().toISOString(),
           isDemoPreview: true,
           agentSteps: steps.map((s) => ({ ...s, status: "completed" as const })),

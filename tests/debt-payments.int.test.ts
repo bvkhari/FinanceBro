@@ -220,6 +220,45 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
     expect((await debt(id)).outstanding_balance).toBe(50);
   });
 
+  it("records a purchase on credit as an expense that doesn't move cash, counted once", async () => {
+    const before = await balance();
+    const id = await createDebt(
+      {
+        name: "Credit purchase", debt_type: "bnpl", original_amount: 300, repayment_amount: 100, frequency: "monthly",
+        purchase: { txn_date: "2026-09-15", category: "Shopping", note: "Earbuds" },
+      },
+      generateSchedule({ amount: 300, instalmentAmount: 100, frequency: "monthly", firstDueDate: "2026-10-05" })
+    );
+    const d = await debt(id);
+    const { data: purchase } = await db.from("transactions").select("*").eq("id", d.purchase_transaction_id).single();
+    expect(purchase).toMatchObject({ direction: "expense", category: "Shopping", cash_effect: false, txn_date: "2026-09-15", note: "Earbuds" });
+    expect(Number(purchase!.amount)).toBe(300);
+    expect(await balance()).toBe(before); // buying on credit didn't move cash
+
+    const [first] = await instalments(id);
+    await pay(first.id, 100);
+    expect(await balance()).toBe(before - 100); // repaying did
+
+    // Spending = the purchase only; the repayment is cash, not spending
+    const { data: rows } = await db.from("transactions").select("category, amount, cash_effect").eq("profile_id", STUDENT).eq("merchant", "Credit purchase");
+    const spending = rows!.filter((r) => r.category !== "Debt Repayment").reduce((s, r) => s + Number(r.amount), 0);
+    const cashOut = rows!.filter((r) => r.cash_effect).reduce((s, r) => s + Number(r.amount), 0);
+    expect(spending).toBe(300);
+    expect(cashOut).toBe(100);
+  });
+
+  it("moves the balance when a transaction switches between cash and credit", async () => {
+    const before = await balance();
+    const { data: t } = await db.from("transactions").insert({
+      profile_id: STUDENT, txn_date: "2026-10-01", amount: 25, direction: "expense", category: "Food", merchant: "Toggle", cash_effect: false,
+    }).select().single();
+    expect(await balance()).toBe(before);
+    await db.from("transactions").update({ cash_effect: true }).eq("id", t!.id);
+    expect(await balance()).toBe(before - 25);
+    await db.from("transactions").delete().eq("id", t!.id);
+    expect(await balance()).toBe(before);
+  });
+
   it("keeps personal and business debt types on the right profile", async () => {
     await expect(
       createDebt({ name: "Wrong place", debt_type: "supplier_invoice", original_amount: 10, frequency: "one_time" }, [

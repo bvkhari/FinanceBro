@@ -110,19 +110,43 @@ Nota dari test Fasa 2:
 - Pilihan Combined disimpan dalam browser (macam pilihan profile), jadi kekal lepas reload. Diuji: Combined → reload kekal Combined, Personal → reload kekal Personal
 - Dashboard tab Expenses masih kira bayaran hutang sebagai expense (step 9)
 
-## Fasa 3: Logik duit
+## Fasa 3: Logik duit 🔄 *sedang dibuat*
 
-- [ ] **9. Cash flow tanpa double-count**
+Keputusan reka bentuk:
+- Pembelian secara hutang (BNPL, invois supplier) direkod sebagai **expense tanpa kesan tunai** (`cash_effect = false`) dan dipautkan ke hutang tu. Ia dikira dalam expense bulanan, tapi tak kurangkan baki tunai
+- Bila instalment dibayar, transaksi `Debt Repayment` kurangkan tunai, tapi **tak** dikira sebagai expense (pembelian dah dikira). Hanya `Interest & Fees` masuk expense
+- Jadi setiap ringgit dikira sekali: expense masa beli, tunai masa bayar
+- Formula dan andaian dipaparkan dalam UI, bukan disorok
+- Ufuk masa unjuran: hujung bulan ni (sama dengan Debt Dashboard)
+
+- [x] **9. Cash flow tanpa double-count**
   - [x] Buang double-count dalam `markCommitmentPaid` *(Fasa 2: bil hanya boleh ditanda paid sekali, dan BNPL/loan dah keluar dari `commitments`)*
-  - [ ] Transaksi `Debt Repayment` tidak dikira sebagai expense bulanan (hanya `Interest & Fees`)
-  - [ ] Principal kurangkan hutang, faedah dan fi direkod sebagai expense
-  - [ ] Pembelian yang dah direkod sebagai expense tidak dikira semula
-  - [ ] Invois supplier dipautkan ke purchase/expense
-  - [ ] Available cash = starting cash + income received − cash expenses paid − debt repayments paid
-  - [ ] Projected cash (expected income, unpaid expenses, upcoming repayments, andaian dinyatakan)
-  - [ ] Tidak tolak seluruh outstanding debt, hanya yang due
+  - [x] Transaksi `Debt Repayment` tidak dikira sebagai expense bulanan (hanya `Interest & Fees`), dalam kad Spent, budget, carta kategori dan carta harian
+  - [x] Principal kurangkan hutang, faedah dan fi direkod sebagai expense *(Fasa 1: `record_debt_payment` dah asingkan principal dan faedah)*
+  - [x] Pembelian yang dah direkod sebagai expense tidak dikira semula
+    - [x] Kolum `transactions.cash_effect` dan `debts.purchase_transaction_id`
+    - [x] Trigger baki akaun abaikan transaksi tanpa kesan tunai
+    - [x] Borang Add debt: pilihan "rekod pembelian sebagai expense" (kategori, tarikh)
+    - [x] Senarai transaksi tunjuk label "On credit"
+  - [x] Invois supplier dipautkan ke purchase/expense (seed: 3 invois Kopi Senja dan Shopee PayLater dipautkan ke pembelian)
+  - [x] Available cash = starting cash + income received − cash expenses paid − debt repayments paid, dengan pecahan untuk bulan ni
+  - [x] Projected cash hujung bulan = available cash + expected income − bil belum bayar − instalment hutang belum bayar. Income disahkan dan belum disahkan ditunjuk berasingan
+  - [x] Tidak tolak seluruh outstanding debt, hanya yang due
+  - [x] Chat (`/financebro-ai`) guna angka yang sama (bil dan instalment due hujung bulan)
+  - [x] Unit test untuk semua formula, dan integration test untuk trigger baki
+  - Diuji dalam browser (Personal, 10 Okt): bayar instalment RM89.90 → Spent kekal RM245.52, tunai RM720 → RM630.10, projected kekal RM442.40. Tambah BNPL RM120 dengan pembelian → Spent RM365.52, tunai kekal RM630.10. Chat tunjuk angka sama dengan Debt Dashboard
+  - Seed: 8 hutang dipautkan ke pembelian on-credit (invois supplier, BNPL, statement kad). Expense September Kopi Senja jadi RM29,443 (lebih dari revenue) sebab pembelian on-credit dikira masa beli
 - [ ] **10. Edit instalment akan datang** tanpa ubah yang dah bayar
+  - [ ] Edit tarikh dan amaun instalment yang belum dibayar
+  - [ ] Instalment partial: amaun tak boleh kurang dari yang dah dibayar
+  - [ ] Instalment yang dah paid dan cancelled dikunci
+  - [ ] Batalkan instalment yang belum ada bayaran
+  - [ ] Tambah instalment / sambung jadual bila ada baki belum dijadualkan (guna `planScheduleExtension`)
+  - [ ] Jadual semula baki (tukar frequency dan amaun) tanpa sentuh sejarah bayaran
+  - [ ] Semua perubahan melalui function SQL, dengan integration test
 - [ ] **11. In-app reminder** untuk bayaran yang dah dekat *(separuh: notifikasi overdue dan due dalam 3 hari dah ada untuk `commitments`)*
+  - [ ] Notifikasi untuk instalment hutang overdue dan due dalam 3 hari
+  - [ ] Label jelas "in-app" sahaja (tiada notifikasi luar yang dihantar)
 
 ## Fasa 4: Bonus
 

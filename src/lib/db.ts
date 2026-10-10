@@ -14,11 +14,14 @@ import {
   DebtType,
   FinancialCommitment,
   FinancialProfile,
+  IncomeScheduleItem,
   NewDebtInput,
+  NewTransaction,
   Transaction,
 } from "./types";
 import type { ScheduledInstalment } from "./debt/schedule";
 import { todayISO } from "./utils";
+import { netCash } from "./cashflow";
 
 type DbMode = "student" | "business";
 type CommitmentKind = "bill" | "bnpl" | "loan" | "credit_card" | "supplier" | "rent" | "other";
@@ -41,6 +44,7 @@ interface TransactionRow {
   merchant: string;
   note: string | null;
   flag: "duplicate" | "unusual" | null;
+  cash_effect: boolean;
   created_at: string;
 }
 
@@ -92,6 +96,7 @@ export interface ProfileData {
   transactions: Transaction[];
   commitments: FinancialCommitment[];
   debts: Debt[];
+  incomeSchedule: IncomeScheduleItem[];
 }
 
 const toAppMode = (m: DbMode): AppMode => (m === "student" ? "individual" : "business");
@@ -149,6 +154,7 @@ function mapTransaction(r: TransactionRow, mode: AppMode): Transaction {
     date: r.txn_date,
     description: r.note ?? undefined,
     flag: r.flag ?? undefined,
+    cashEffect: r.cash_effect,
     createdAt: r.created_at,
   };
 }
@@ -232,16 +238,18 @@ export async function fetchProfileData(mode: AppMode): Promise<ProfileData> {
     await supabase.from("profiles").select("*").eq("mode", toDbMode(mode)).order("created_at").limit(1).single()
   ) as ProfileRow;
 
-  const [txRows, cRows, budgetRows, debtRows] = await Promise.all([
+  const [txRows, cRows, budgetRows, debtRows, incomeRows] = await Promise.all([
     supabase.from("transactions").select("*").eq("profile_id", p.id)
       .order("txn_date", { ascending: false }).order("created_at", { ascending: false }),
     supabase.from("commitments").select("*").eq("profile_id", p.id).order("due_date"),
     supabase.from("budgets").select("month, limit_amount").eq("profile_id", p.id).order("month", { ascending: false }),
     supabase.from("debts").select("*, debt_instalments(*)").eq("profile_id", p.id).order("created_at"),
+    supabase.from("income_schedule").select("id, source, expected_amount, expected_date, confirmed").eq("profile_id", p.id).order("expected_date"),
   ]).then((rs) => rs.map(check));
 
   const transactions = (txRows as TransactionRow[]).map((r) => mapTransaction(r, mode));
-  const net = transactions.reduce((sum, t) => sum + (t.type === "income" ? t.amount : -t.amount), 0);
+  // Purchases on credit don't move cash, so they are left out of the balance.
+  const net = netCash(transactions);
 
   // Monthly budget = total of the latest budgeted month.
   const budgets = budgetRows as { month: string; limit_amount: string }[];
@@ -265,6 +273,13 @@ export async function fetchProfileData(mode: AppMode): Promise<ProfileData> {
     transactions,
     commitments: (cRows as CommitmentRow[]).map((r) => mapCommitment(r, mode)),
     debts: (debtRows as DebtRow[]).map((r) => mapDebt(r, mode, todayISO())),
+    incomeSchedule: (incomeRows as { id: string; source: string; expected_amount: string; expected_date: string; confirmed: boolean }[]).map((r) => ({
+      id: r.id,
+      source: r.source,
+      expectedAmount: Number(r.expected_amount),
+      expectedDate: r.expected_date,
+      confirmed: r.confirmed,
+    })),
   };
 }
 
@@ -279,7 +294,7 @@ function transactionFields(t: Partial<Transaction>) {
   return row;
 }
 
-export async function insertTransaction(profileId: string, mode: AppMode, t: Omit<Transaction, "id" | "createdAt" | "mode">) {
+export async function insertTransaction(profileId: string, mode: AppMode, t: NewTransaction) {
   const row = check(
     await supabase.from("transactions")
       .insert({ ...transactionFields(t), profile_id: profileId, source: "manual", created_by: "user" })
@@ -365,6 +380,9 @@ export async function createDebt(profileId: string, input: NewDebtInput, schedul
         end_date: input.endDate || null,
         reference_no: input.referenceNo || null,
         notes: input.notes || null,
+        purchase: input.purchase
+          ? { txn_date: input.purchase.date, category: input.purchase.category, note: input.purchase.note ?? "" }
+          : null,
       },
       p_instalments: schedule,
     })

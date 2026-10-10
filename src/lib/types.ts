@@ -37,6 +37,8 @@ export interface Transaction {
   date: string; // ISO date string
   description?: string;
   flag?: "duplicate" | "unusual";
+  /** False for purchases on credit (BNPL, supplier invoices): an expense that doesn't move cash. */
+  cashEffect: boolean;
   createdAt: string;
 }
 
@@ -229,8 +231,22 @@ export interface NewDebtInput {
   endDate?: string;
   referenceNo?: string;
   notes?: string;
+  /** What was bought on credit: recorded as an expense that doesn't move cash. */
+  purchase?: { date: string; category: string; note?: string };
 }
 
 /** Details that can be edited without touching amounts or the schedule. `null` clears the interest rate. */
 export type DebtDetailsUpdate = Partial<Pick<NewDebtInput,
   "name" | "debtType" | "startDate" | "endDate" | "referenceNo" | "notes">> & { interestRate?: number | null };
+
+/** What the user enters for a new transaction. Entered transactions always move cash. */
+export type NewTransaction = Omit<Transaction, "id" | "createdAt" | "mode" | "cashEffect">;
+
+/** Income the profile expects (allowance, salary, PTPTN, sales payouts). */
+export interface IncomeScheduleItem {
+  id: string;
+  source: string;
+  expectedAmount: number;
+  expectedDate: string;
+  confirmed: boolean;
+}

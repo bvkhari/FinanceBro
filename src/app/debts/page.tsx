@@ -28,6 +28,7 @@ import { PaymentModal, PaymentTarget } from "@/components/debt/PaymentModal";
 import { PaymentRows } from "@/components/debt/PaymentRows";
 import { DebtScopeControl, ProfileTag } from "@/components/debt/DebtScopeControl";
 import { useDebtView } from "@/lib/debt/useDebtView";
+import { spendingCategories } from "@/lib/categories";
 import { PAYMENT_FILTERS, PaymentFilter, countdown, filterPayments, totalDue, totalPaid } from "@/lib/debt/payments";
 import {
   ScheduledInstalment,
@@ -390,6 +391,9 @@ function DebtCard({
 // Add a debt with its schedule
 // ------------------------------------------------------------
 
+/** Debt types that usually come from buying something, so the purchase option starts ticked. */
+const PURCHASE_TYPES = new Set<DebtType>(["bnpl", "credit_card", "business_credit_card", "supplier_invoice"]);
+
 interface IrregularRow {
   key: number;
   due_date: string;
@@ -413,11 +417,17 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
   const [endDate, setEndDate] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
   const [notes, setNotes] = useState("");
+  const [recordPurchase, setRecordPurchase] = useState(true);
+  const [purchaseCategory, setPurchaseCategory] = useState(spendingCategories(mode)[0]);
+  const [purchaseDate, setPurchaseDate] = useState(todayISO());
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
+    setRecordPurchase(PURCHASE_TYPES.has(debtTypesFor(mode)[0].value));
+    setPurchaseCategory(spendingCategories(mode)[0]);
+    setPurchaseDate(todayISO());
     setName("");
     setDebtType(debtTypesFor(mode)[0].value);
     setOriginal("");
@@ -474,6 +484,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
     const rate = interestRate ? parseFloat(interestRate) : undefined;
     if (rate !== undefined && (isNaN(rate) || rate < 0)) return setError("Interest rate must be 0 or more, or left empty.");
     if (startDate && endDate && endDate < startDate) return setError("The end date is before the start date.");
+    if (recordPurchase && !purchaseDate) return setError("Enter the date of the purchase.");
 
     setSaving(true);
     try {
@@ -490,6 +501,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
           endDate: endDate || undefined,
           referenceNo: referenceNo.trim() || undefined,
           notes: notes.trim() || undefined,
+          purchase: recordPurchase ? { date: purchaseDate, category: purchaseCategory } : undefined,
         },
         preview.schedule
       );
@@ -511,7 +523,16 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <Select label="Debt type" value={debtType} onChange={(e) => setDebtType(e.target.value as DebtType)} options={types} />
+          <Select
+            label="Debt type"
+            value={debtType}
+            onChange={(e) => {
+              const t = e.target.value as DebtType;
+              setDebtType(t);
+              setRecordPurchase(PURCHASE_TYPES.has(t));
+            }}
+            options={types}
+          />
           <Input label="Original amount (RM)" type="number" step="0.01" min="0" value={original} onChange={(e) => setOriginal(e.target.value)} />
           <Input
             label="Outstanding balance (RM)"
@@ -606,6 +627,36 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
               <p className="text-footnote text-label-3">{preview.problem}</p>
             )}
           </div>
+        </div>
+
+        <div className="rounded-2xl bg-gray/7 p-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={recordPurchase}
+              onChange={(e) => setRecordPurchase(e.target.checked)}
+              className="mt-0.5 h-5 w-5 rounded accent-[rgb(var(--accent))]"
+            />
+            <span>
+              <span className="block text-headline text-label">Record what was bought as an expense</span>
+              <span className="block text-footnote text-label-2">
+                Adds {original ? formatRM(parseFloat(original) || 0) : "the original amount"} as spending on the purchase date, marked
+                &quot;on credit&quot; so it doesn&apos;t reduce your cash. Repayments then reduce cash without counting the spending twice.
+                Leave this off for cash loans, or if you already recorded the purchase.
+              </span>
+            </span>
+          </label>
+          {recordPurchase && (
+            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Select
+                label="Spending category"
+                value={purchaseCategory}
+                onChange={(e) => setPurchaseCategory(e.target.value)}
+                options={spendingCategories(mode).map((c) => ({ value: c, label: c }))}
+              />
+              <Input label="Purchase date" type="date" max={todayISO()} value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

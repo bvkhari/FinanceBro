@@ -20,6 +20,7 @@ import {
   Landmark,
 } from "lucide-react";
 import { useDebtView } from "@/lib/debt/useDebtView";
+import type { CashFlow } from "@/lib/cashflow";
 import { countdown } from "@/lib/debt/payments";
 import { PaymentRows } from "@/components/debt/PaymentRows";
 import { DebtScopeControl } from "@/components/debt/DebtScopeControl";
@@ -63,6 +64,7 @@ export default function DashboardPage() {
     categoryBreakdown,
     incomeExpenseData,
     transactions,
+    cashFlow,
   } = useFinance();
   const [budgetPeriod, setBudgetPeriod] = useState<"weekly" | "monthly">("monthly");
   const [workspace, setWorkspace] = useState<"expenses" | "debt">("expenses");
@@ -142,6 +144,8 @@ export default function DashboardPage() {
               />
             </div>
           </Card>
+
+          <CashFlowCard f={cashFlow} />
 
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:gap-4">
             <Card title="Income and expenses" className="lg:col-span-3">
@@ -233,6 +237,71 @@ export default function DashboardPage() {
         <DebtWorkspace />
       )}
     </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Cash flow: this month's cash, and where it lands at month end
+// ------------------------------------------------------------
+
+function CashFlowCard({ f }: { f: CashFlow }) {
+  const start = formatDateShort(f.monthStart);
+  const end = formatDateShort(f.monthEnd);
+  const Row = ({ label, value, sign, strong }: { label: string; value: number; sign?: "+" | "−"; strong?: boolean }) => (
+    <div className={`flex items-baseline justify-between gap-3 ${strong ? "py-3" : "py-2.5"}`}>
+      <dt className={strong ? "text-headline" : "text-body text-label-2"}>{label}</dt>
+      <dd
+        className={`tabular ${strong ? `text-title3 ${value < 0 ? "text-negative" : "text-label"}` : `text-body ${sign === "−" ? "text-negative" : sign === "+" ? "text-positive" : ""}`}`}
+      >
+        {sign && value !== 0 ? sign : ""}
+        {formatRM(value)}
+      </dd>
+    </div>
+  );
+
+  return (
+    <Card title="Cash flow" flush>
+      <div className="grid grid-cols-1 divide-y divide-[color:var(--separator)] md:grid-cols-2 md:divide-x md:divide-y-0">
+        <div className="px-4 py-2">
+          <p className="pt-2 text-footnote font-semibold uppercase tracking-wide text-label-3">This month so far</p>
+          <dl className="grouped">
+            <Row label={`Cash on ${start}`} value={f.openingCash} />
+            <Row label="Income received" value={f.incomeReceived} sign="+" />
+            <Row label="Expenses paid in cash" value={f.cashExpensesPaid} sign="−" />
+            <Row label="Debt repayments paid" value={f.debtRepaymentsPaid} sign="−" />
+            <Row label="Available cash" value={f.availableCash} strong />
+          </dl>
+        </div>
+        <div className="px-4 py-2">
+          <p className="pt-2 text-footnote font-semibold uppercase tracking-wide text-label-3">Projected by {end}</p>
+          <dl className="grouped">
+            <Row label="Available cash" value={f.availableCash} />
+            <Row label="Expected income (confirmed)" value={f.expectedIncomeConfirmed} sign="+" />
+            <Row label="Bills still to pay" value={f.billsDue} sign="−" />
+            <Row label="Debt repayments due" value={f.debtRepaymentsDue} sign="−" />
+            <Row label={`Cash on ${end}`} value={f.projectedCash} strong />
+          </dl>
+        </div>
+      </div>
+      <ul className="space-y-1 px-4 pb-4 pt-1 text-footnote text-label-2 shadow-[inset_0_0.5px_0_var(--separator)]">
+        <li className="pt-3">
+          Bills and repayments count only what is due by {end} (overdue included), never the whole outstanding debt.
+        </li>
+        {f.expectedIncomeUnconfirmed > 0 && (
+          <li>
+            Unconfirmed income of {formatRM(f.expectedIncomeUnconfirmed)} isn&apos;t included. If it arrives, you&apos;d have{" "}
+            {formatRM(f.projectedWithUnconfirmed)} on {end}.
+          </li>
+        )}
+        {f.spentOnCredit > 0 && (
+          <li>
+            {formatRM(f.spentOnCredit)} of this month&apos;s spending was bought on credit, so it isn&apos;t cash yet. It leaves your
+            account when you repay it.
+          </li>
+        )}
+        <li>Debt repayments aren&apos;t counted as spending, because the purchase was counted when you made it.</li>
+      </ul>
+    </Card>
   );
 }
 

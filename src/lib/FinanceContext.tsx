@@ -21,6 +21,7 @@ import {
   Debt,
   DebtDetailsUpdate,
   NewDebtInput,
+  NewTransaction,
 } from "./types";
 import {
   ProfileData,
@@ -38,6 +39,8 @@ import {
   PaymentResult,
 } from "./db";
 import type { ScheduledInstalment } from "./debt/schedule";
+import { buildPayments } from "./debt/payments";
+import { CashFlow, cashFlow, isSpending, netCash } from "./cashflow";
 import { daysUntil, todayISO } from "./utils";
 
 // ============================================================
@@ -59,7 +62,7 @@ interface FinanceContextValue {
 
   // Transactions
   transactions: Transaction[];
-  addTransaction: (t: Omit<Transaction, "id" | "createdAt" | "mode">) => void;
+  addTransaction: (t: NewTransaction) => void;
   updateTransaction: (id: string, updates: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
 
@@ -90,6 +93,8 @@ interface FinanceContextValue {
 
   // Computed values
   summary: FinancialSummary;
+  /** This month's cash flow and the projection to month end, for the active profile. */
+  cashFlow: CashFlow;
   budget: Budget;
   categoryBreakdown: CategoryBreakdown[];
   incomeExpenseData: IncomeExpenseData[];
@@ -110,8 +115,7 @@ const FinanceContext = createContext<FinanceContextValue | null>(null);
 /** Today's balance for a loaded profile: opening balance + every transaction. */
 function balanceOf(d?: ProfileData): number {
   if (!d) return 0;
-  const net = d.transactions.reduce((s, t) => s + Math.round(t.amount * 100) * (t.type === "income" ? 1 : -1), 0);
-  return (Math.round(d.profile.startingBalance * 100) + net) / 100;
+  return (Math.round(d.profile.startingBalance * 100) + Math.round(netCash(d.transactions) * 100)) / 100;
 }
 
 const MODE_KEY = "financebro-ai-mode";
@@ -231,7 +235,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addTransaction = useCallback(
-    (t: Omit<Transaction, "id" | "createdAt" | "mode">) => write((pid) => insertTransaction(pid, mode, t)),
+    (t: NewTransaction) => write((pid) => insertTransaction(pid, mode, t)),
     [write, mode]
   );
 
@@ -318,21 +322,24 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     createdAt: "",
   };
 
+  // === Cash flow (see lib/cashflow.ts for the rules) ===
+  const today = todayISO();
+  const payments = useMemo(() => buildPayments(debts, commitments, today), [debts, commitments, today]);
+  const cash: CashFlow = useMemo(
+    () => cashFlow({ transactions, balance: balances[mode], payments, incomeSchedule: current?.incomeSchedule ?? [], today }),
+    [transactions, balances, mode, payments, current, today]
+  );
+
   // === Computed financial summary ===
   const summary: FinancialSummary = useMemo(() => {
-    const sum = (list: Transaction[], type: Transaction["type"]) =>
-      list.filter((t) => t.type === type).reduce((s, t) => s + t.amount, 0);
+    const total = (list: Transaction[]) => list.reduce((s, t) => s + Math.round(t.amount * 100), 0) / 100;
+    const totalIncome = total(monthTransactions.filter((t) => t.type === "income"));
+    // Spending: repayments excluded (not an expense), purchases on credit included.
+    const totalExpenses = total(monthTransactions.filter(isSpending));
 
-    const totalIncome = sum(monthTransactions, "income");
-    const totalExpenses = sum(monthTransactions, "expense");
-
-    const upcomingCommitments = commitments
-      .filter((c) => c.status !== "paid")
-      .reduce((s, c) => s + c.amount, 0);
-
-    const currentBalance = profile.startingBalance + sum(transactions, "income") - sum(transactions, "expense");
-    const budgetRemaining = Math.max(0, profile.monthlyBudget - totalExpenses);
-    const projectedRemainingBalance = currentBalance - upcomingCommitments;
+    // Only what is due by the end of the month, never the whole outstanding debt.
+    const upcomingCommitments = (Math.round(cash.billsDue * 100) + Math.round(cash.debtRepaymentsDue * 100)) / 100;
+    const currentBalance = cash.availableCash;
 
     return {
       mode,
@@ -340,10 +347,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       totalMonthlyIncome: totalIncome,
       totalMonthlyExpenses: totalExpenses,
       upcomingCommitments,
-      budgetRemaining,
-      projectedRemainingBalance,
+      budgetRemaining: Math.max(0, profile.monthlyBudget - totalExpenses),
+      projectedRemainingBalance: (Math.round(currentBalance * 100) - Math.round(upcomingCommitments * 100)) / 100,
     };
-  }, [transactions, monthTransactions, commitments, profile.startingBalance, profile.monthlyBudget, mode]);
+  }, [monthTransactions, cash, profile.monthlyBudget, mode]);
 
   // === Budget for weekly/monthly ===
   const budget: Budget = useMemo(() => {
@@ -361,7 +368,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   // === Category breakdown for charts ===
   const categoryBreakdown: CategoryBreakdown[] = useMemo(() => {
-    const expenseTransactions = monthTransactions.filter((t) => t.type === "expense");
+    const expenseTransactions = monthTransactions.filter(isSpending);
     const totalExpenses = expenseTransactions.reduce((sum, t) => sum + t.amount, 0);
 
     const categoryMap = new Map<string, number>();
@@ -388,7 +395,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       const dateLabel = new Date(t.date).toLocaleDateString("en-MY", { day: "numeric", month: "short" });
       const existing = map.get(dateLabel) || { income: 0, expenses: 0 };
       if (t.type === "income") existing.income += t.amount;
-      else existing.expenses += t.amount;
+      else if (isSpending(t)) existing.expenses += t.amount;
       map.set(dateLabel, existing);
     }
 
@@ -469,6 +476,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     updateDebt,
     recordPayment,
     summary,
+    cashFlow: cash,
     budget,
     categoryBreakdown,
     incomeExpenseData,

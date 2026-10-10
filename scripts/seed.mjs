@@ -186,28 +186,36 @@ const once = (amount, due) => generateSchedule({ amount, frequency: "one_time", 
 const debts = [
   // Student
   { id: debtId(1), profile_id: S, name: "Shopee PayLater", debt_type: "bnpl", original_amount: 300, repayment_amount: 100,
-    frequency: "monthly", schedule: monthly(300, 100, d(10, 15)), notes: "Wireless earbuds, 3 monthly instalments" },
+    frequency: "monthly", schedule: monthly(300, 100, d(10, 15)), notes: "Wireless earbuds, 3 monthly instalments",
+    purchase: { txn_date: d(9, 15), category: "Shopping", note: "Wireless earbuds (Shopee PayLater)" } },
   { id: debtId(2), profile_id: S, name: "SPayLater – phone", debt_type: "bnpl", original_amount: 539.4, repayment_amount: 89.9,
     frequency: "monthly", schedule: monthly(539.4, 89.9, "2026-08-12"), paid: ["2026-08-12", d(9, 12)],
-    start_date: "2026-07-12", end_date: "2027-01-12" },
+    start_date: "2026-07-12", end_date: "2027-01-12",
+    purchase: { txn_date: "2026-07-12", category: "Shopping", note: "Phone (SPayLater, 6 months)" } },
   { id: debtId(3), profile_id: S, name: "SPayLater – headphones", debt_type: "bnpl", original_amount: 182, repayment_amount: 45.5,
     frequency: "monthly", schedule: monthly(182, 45.5, "2026-08-14"), paid: ["2026-08-14", d(9, 14)],
-    start_date: "2026-07-14", end_date: "2026-11-14" },
+    start_date: "2026-07-14", end_date: "2026-11-14",
+    purchase: { txn_date: "2026-07-14", category: "Shopping", note: "Headphones (SPayLater, 4 months)" } },
   { id: debtId(4), profile_id: S, name: "Grab PayLater", debt_type: "bnpl", original_amount: 64.2, frequency: "one_time",
-    schedule: once(64.2, d(10, 31)), notes: "September rides and GrabFood" },
+    schedule: once(64.2, d(10, 31)), notes: "September rides and GrabFood",
+    purchase: { txn_date: d(9, 30), category: "Transportation", note: "September Grab rides (Grab PayLater)" } },
   { id: debtId(5), profile_id: S, name: "Abang Hafiz", debt_type: "family_friend", original_amount: 200, frequency: "irregular",
     schedule: normaliseIrregularSchedule([{ due_date: d(10, 25), amount: 80 }, { due_date: d(11, 25), amount: 120 }]),
     notes: "Borrowed for textbooks. No interest; pay when allowance comes in." },
   // Kopi Senja — RM 3,400 in supplier invoices due before the next payout
   { id: debtId(11), profile_id: K, name: "Kopi Bumi Roasters", debt_type: "supplier_invoice", original_amount: 1680,
-    frequency: "one_time", schedule: once(1680, d(10, 12)), reference_no: "KBR-1001", notes: "Arabica + robusta beans, 30-day terms" },
+    frequency: "one_time", schedule: once(1680, d(10, 12)), reference_no: "KBR-1001", notes: "Arabica + robusta beans, 30-day terms",
+    purchase: { txn_date: d(9, 12), category: "Ingredients", note: "Beans on 30-day terms (invoice KBR-1001)" } },
   { id: debtId(12), profile_id: K, name: "Farm Fresh", debt_type: "supplier_invoice", original_amount: 940,
-    frequency: "one_time", schedule: once(940, d(10, 13)), reference_no: "FF-88213", notes: "Fresh milk, September deliveries" },
+    frequency: "one_time", schedule: once(940, d(10, 13)), reference_no: "FF-88213", notes: "Fresh milk, September deliveries",
+    purchase: { txn_date: d(9, 13), category: "Ingredients", note: "Milk on credit (invoice FF-88213)" } },
   { id: debtId(13), profile_id: K, name: "EcoPack Supplies", debt_type: "supplier_invoice", original_amount: 780,
-    frequency: "one_time", schedule: once(780, d(10, 14)), reference_no: "EP-2026-311", notes: "Cups, lids and paper bags" },
+    frequency: "one_time", schedule: once(780, d(10, 14)), reference_no: "EP-2026-311", notes: "Cups, lids and paper bags",
+    purchase: { txn_date: d(9, 14), category: "Packaging", note: "Packaging on credit (invoice EP-2026-311)" } },
   { id: debtId(14), profile_id: K, name: "Maybank Business card", debt_type: "business_credit_card", original_amount: 2350,
     frequency: "one_time", schedule: once(2350, d(10, 18)), reference_no: "Statement Sep 2026", interest_rate: 15,
-    notes: "Full statement balance; interest applies only if not paid in full" },
+    notes: "Full statement balance; interest applies only if not paid in full",
+    purchase: { txn_date: d(9, 30), category: "Operating Expenses", note: "September card purchases (statement)" } },
   { id: debtId(15), profile_id: K, name: "Hong Leong Bank – espresso machine", debt_type: "equipment_financing", original_amount: 27600,
     repayment_amount: 1150, frequency: "monthly", schedule: monthly(27600, 1150, "2025-12-20"),
     paid: ["2025-12-20", "2026-01-20", "2026-02-20", "2026-03-20", "2026-04-20", "2026-05-20", "2026-06-20", "2026-07-20", "2026-08-20", d(9, 20)],
@@ -270,7 +278,11 @@ for (const p of profiles) {
   const mine = txns.filter((t) => t.profile_id === p.id);
   const sum = (f) => mine.filter(f).reduce((a, t) => a + cents(t.amount), 0) / 100;
   const sepIn = sum((t) => t.direction === "income" && t.txn_date.startsWith("2026-09"));
-  const sepOut = sum((t) => t.direction === "expense" && t.txn_date.startsWith("2026-09"));
+  // Expenses exclude repayments (not an expense) and include purchases made on credit.
+  const sepCredit = debts
+    .filter((dbt) => dbt.profile_id === p.id && dbt.purchase?.txn_date.startsWith("2026-09"))
+    .reduce((a, dbt) => a + cents(dbt.original_amount), 0) / 100;
+  const sepOut = sum((t) => t.direction === "expense" && t.category !== "Debt Repayment" && t.txn_date.startsWith("2026-09")) + sepCredit;
   const next = income.filter((i) => i.profile_id === p.id).sort((a, b) => a.expected_date.localeCompare(b.expected_date))[0];
   const billsDue = commitments
     .filter((c) => c.profile_id === p.id && c.status !== "paid" && c.due_date < next.expected_date)

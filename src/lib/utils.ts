@@ -5,7 +5,8 @@
 /** Format a number as Malaysian Ringgit */
 export function formatRM(amount: number, options?: { decimals?: number }): string {
   const decimals = options?.decimals ?? 2;
-  return `RM ${amount.toLocaleString("en-MY", {
+  // Negatives read "−RM 1,350.00", like the amounts the pages prefix with "−" themselves.
+  return `${amount < 0 ? "−" : ""}RM ${Math.abs(amount).toLocaleString("en-MY", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })}`;

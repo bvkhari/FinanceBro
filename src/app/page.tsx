@@ -241,7 +241,7 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : (
-        <DebtWorkspace />
+        <DebtWorkspace f={cashFlow} />
       )}
     </div>
   );
@@ -316,7 +316,7 @@ function CashFlowCard({ f }: { f: CashFlow }) {
 // Debt dashboard: what is owed vs what is due, and who to pay next
 // ------------------------------------------------------------
 
-function DebtWorkspace() {
+function DebtWorkspace({ f }: { f: CashFlow }) {
   const { today, debts, payments, overview: o } = useDebtView();
   const [sheet, setSheet] = useState<7 | 30 | null>(null);
   const due30 = dueWithin(payments, 30, today);
@@ -399,20 +399,27 @@ function DebtWorkspace() {
           <dl className="grouped px-4">
             <div className="flex justify-between py-3">
               <dt className="text-body text-label-2">Balance</dt>
-              <dd className="tabular text-body">{formatRM(o.balance)}</dd>
+              <dd className="tabular text-body">{formatRM(f.availableCash)}</dd>
             </div>
+            {/* Same projection as the Cash flow card, so both tabs show one month-end figure. */}
+            {f.expectedIncomeConfirmed > 0 && (
+              <div className="flex justify-between py-3">
+                <dt className="text-body text-label-2">Expected income</dt>
+                <dd className="tabular text-body">+{formatRM(f.expectedIncomeConfirmed)}</dd>
+              </div>
+            )}
             <div className="flex justify-between py-3">
               <dt className="text-body text-label-2">Repayments due</dt>
-              <dd className="tabular text-body">−{formatRM(o.debtDueByMonthEnd)}</dd>
+              <dd className="tabular text-body">−{formatRM(f.debtRepaymentsDue)}</dd>
             </div>
             <div className="flex justify-between py-3">
               <dt className="text-body text-label-2">Bills due</dt>
-              <dd className="tabular text-body">−{formatRM(o.billsDueByMonthEnd)}</dd>
+              <dd className="tabular text-body">−{formatRM(f.billsDue)}</dd>
             </div>
             <div className="flex items-baseline justify-between py-3.5">
               <dt className="text-headline">Left over</dt>
-              <dd className={`tabular text-title2 ${o.availableAfterCommitments < 0 ? "text-negative" : "text-label"}`}>
-                {formatRM(o.availableAfterCommitments)}
+              <dd className={`tabular text-title2 ${f.projectedCash < 0 ? "text-negative" : "text-label"}`}>
+                {formatRM(f.projectedCash)}
               </dd>
             </div>
           </dl>

@@ -15,7 +15,7 @@ import { useFinance } from "@/lib/FinanceContext";
 import { useState } from "react";
 
 const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/financebro-ai", label: "FinanceBro AI", icon: Bot },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/commitments", label: "Commitments", icon: CalendarClock },

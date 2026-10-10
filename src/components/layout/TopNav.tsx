@@ -7,7 +7,7 @@ import { useState, useRef, useEffect } from "react";
 import { formatRM } from "@/lib/utils";
 
 const pageTitles: Record<string, string> = {
-  "/": "Dashboard",
+  "/dashboard": "Dashboard",
   "/financebro-ai": "FinanceBro AI",
   "/transactions": "Transactions",
   "/commitments": "Commitments",

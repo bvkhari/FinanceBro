@@ -2,7 +2,6 @@
 
 import { CreditCard, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { ProfileTag } from "@/components/debt/DebtScopeControl";
 import { formatDate, formatRM } from "@/lib/utils";
 import { INSTALMENT_STATUS_STYLE } from "@/lib/debt/labels";
 import { PaymentItem, countdown } from "@/lib/debt/payments";
@@ -22,14 +21,12 @@ const iconTone = {
 export function PaymentRows({
   items,
   today,
-  combined,
   onPay,
   onMarkBillPaid,
   compact = false,
 }: {
   items: PaymentItem[];
   today: string;
-  combined: boolean;
   onPay?: (item: PaymentItem) => void;
   onMarkBillPaid?: (item: PaymentItem) => void;
   compact?: boolean;
@@ -48,10 +45,7 @@ export function PaymentRows({
             </span>
 
             <div className="min-w-0 flex-1 basis-40">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <p className="truncate text-body text-label">{p.payee}</p>
-                {combined && <ProfileTag mode={p.mode} />}
-              </div>
+              <p className="truncate text-body text-label">{p.payee}</p>
               <p className="text-footnote text-label-2">
                 <span className={late ? "font-medium text-negative" : unpaid && p.dueDate === today ? "font-medium text-warning" : ""}>
                   {formatDate(p.dueDate)} · {countdown(p.dueDate, today, p.status)}

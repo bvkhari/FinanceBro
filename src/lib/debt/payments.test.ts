@@ -6,6 +6,7 @@ import {
   countdown,
   daysBetween,
   debtOverview,
+  debtBreakdown,
   endOfMonth,
   filterPayments,
   totalDue,
@@ -193,6 +194,40 @@ describe("debtOverview", () => {
   it("handles no debts", () => {
     const empty = debtOverview([], [], 50, TODAY);
     expect(empty).toMatchObject({ totalOutstanding: 0, activeDebts: 0, dueThisMonth: 0, nextPayment: undefined, availableAfterCommitments: 50 });
+  });
+});
+
+describe("debtBreakdown", () => {
+  it("splits each dashboard total by creditor, largest first", () => {
+    expect(debtBreakdown(debts, items, "outstanding", TODAY)).toEqual([
+      { name: "Abang Hafiz", amount: 230 },
+      { name: "Shopee PayLater", amount: 200 },
+      { name: "Credit card", amount: 110 },
+    ]);
+    expect(debtBreakdown(debts, items, "month", TODAY)).toEqual([
+      { name: "Abang Hafiz", amount: 230 },
+      { name: "Credit card", amount: 110 },
+    ]);
+    expect(debtBreakdown(debts, items, "next7", TODAY)).toEqual([
+      { name: "Credit card", amount: 110 },
+      { name: "Abang Hafiz", amount: 100 },
+    ]);
+  });
+
+  it("adds up to the overview figures", () => {
+    const o = debtOverview(debts, items, 0, TODAY);
+    const sum = (k: "outstanding" | "month" | "next7" | "overdue") => debtBreakdown(debts, items, k, TODAY).reduce((s, r) => s + r.amount, 0);
+    expect(sum("outstanding")).toBe(o.totalOutstanding);
+    expect(sum("month")).toBe(o.dueThisMonth);
+    expect(sum("next7")).toBe(o.dueNext7Days);
+    expect(sum("overdue")).toBe(o.overdue);
+  });
+
+  it("adds debts with the same name together", () => {
+    const twin = debt("d5", "Shopee PayLater", 50, [inst("t1", "2026-10-12", 50)]);
+    expect(debtBreakdown([shopee, twin], buildPayments([shopee, twin], [], TODAY), "outstanding", TODAY)).toEqual([
+      { name: "Shopee PayLater", amount: 250 },
+    ]);
   });
 });
 

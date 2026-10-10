@@ -79,9 +79,6 @@ interface FinanceContextValue {
 
   // Debts — these return promises and throw, so forms can show the error
   debts: Debt[];
-  /** Debt views can show the active profile or both profiles combined. */
-  debtScope: DebtScope;
-  setDebtScope: (scope: DebtScope) => void;
   /** Both profiles' records, each tagged with its mode. Records stay separate. */
   allDebts: Debt[];
   allCommitments: FinancialCommitment[];
@@ -118,8 +115,6 @@ interface FinanceContextValue {
   resetData: () => void;
 }
 
-export type DebtScope = "mode" | "combined";
-
 const FinanceContext = createContext<FinanceContextValue | null>(null);
 
 /** Today's balance for a loaded profile: opening balance + every transaction. */
@@ -129,24 +124,6 @@ function balanceOf(d?: ProfileData): number {
 }
 
 const MODE_KEY = "financebro-ai-mode";
-
-const SCOPE_KEY = "financebro-ai-debt-scope";
-
-function loadScope(): DebtScope {
-  try {
-    return localStorage.getItem(SCOPE_KEY) === "combined" ? "combined" : "mode";
-  } catch {
-    return "mode";
-  }
-}
-
-function saveScope(scope: DebtScope) {
-  try {
-    localStorage.setItem(SCOPE_KEY, scope);
-  } catch {
-    // ignore
-  }
-}
 
 function loadMode(): AppMode {
   try {
@@ -161,7 +138,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<Partial<Record<AppMode, ProfileData>>>({});
   const [error, setError] = useState<string | null>(null);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
-  const [debtScope, setDebtScopeState] = useState<DebtScope>("mode");
 
   const reload = useCallback(async (m: AppMode) => {
     try {
@@ -179,21 +155,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setModeState(loadMode());
-    setDebtScopeState(loadScope());
     reloadAll();
   }, [reloadAll]);
 
-  // Saved per browser, like the profile, so a reload keeps the combined view.
-  const setDebtScope = useCallback((scope: DebtScope) => {
-    setDebtScopeState(scope);
-    saveScope(scope);
-  }, []);
-
   const setMode = useCallback((m: AppMode) => {
     setModeState(m);
-    // Picking a profile leaves the combined debt view.
-    setDebtScopeState("mode");
-    saveScope("mode");
     try {
       localStorage.setItem(MODE_KEY, m);
     } catch {
@@ -271,7 +237,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   const markCommitmentPaid = useCallback(
     (id: string) => {
-      // Look in both profiles, so the combined debt view can pay either profile's bill.
+      // Look in both profiles, so the bill is paid on its own profile.
       const owner = (["individual", "business"] as AppMode[]).find((m) => data[m]?.commitments.some((c) => c.id === id));
       const d = owner && data[owner];
       const commitment = d?.commitments.find((c) => c.id === id);
@@ -291,7 +257,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       try {
         return await fn(profileId);
       } finally {
-        // A debt payment in the combined view can belong to either profile.
+        // Reload both profiles, so every view picks up the change.
         reloadAll();
       }
     },
@@ -305,7 +271,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   const updateDebt = useCallback(
     (id: string, details: DebtDetailsUpdate) =>
-      // Use the debt's own profile: in the combined view it may not be the active one.
+      // Use the debt's own profile, which may not be the active one.
       writeOrThrow((pid) => updateDebtDetails(allDebts.find((d) => d.id === id)?.profileId ?? pid, id, details)),
     [writeOrThrow, allDebts]
   );
@@ -485,8 +451,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     updateCommitment,
     markCommitmentPaid,
     debts,
-    debtScope,
-    setDebtScope,
     allDebts,
     allCommitments,
     balances,

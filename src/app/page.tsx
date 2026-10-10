@@ -16,14 +16,12 @@ import {
   ArrowUpRight,
   ArrowRight,
   Clock,
-  CreditCard,
   Landmark,
 } from "lucide-react";
 import { useDebtView } from "@/lib/debt/useDebtView";
 import type { CashFlow } from "@/lib/cashflow";
-import { countdown } from "@/lib/debt/payments";
+import { DebtBreakdownKind, countdown, debtBreakdown } from "@/lib/debt/payments";
 import { PaymentRows } from "@/components/debt/PaymentRows";
-import { DebtScopeControl } from "@/components/debt/DebtScopeControl";
 import { formatRM, formatDateShort } from "@/lib/utils";
 import {
   BarChart,
@@ -67,7 +65,7 @@ export default function DashboardPage() {
     cashFlow,
   } = useFinance();
   const [budgetPeriod, setBudgetPeriod] = useState<"weekly" | "monthly">("monthly");
-  const [workspace, setWorkspace] = useState<"expenses" | "debt">("expenses");
+  const [workspace, setWorkspace] = useState<"expenses" | "debt">("debt");
 
   const recentTransactions = transactions.slice(0, 5);
 
@@ -96,8 +94,8 @@ export default function DashboardPage() {
             value={workspace}
             onChange={setWorkspace}
             options={[
-              { value: "expenses", label: "Expenses" },
               { value: "debt", label: "Debt" },
+              { value: "expenses", label: "Expenses" },
             ]}
           />
         }
@@ -309,30 +307,39 @@ function CashFlowCard({ f }: { f: CashFlow }) {
 // Debt dashboard: what is owed vs what is due, and who to pay next
 // ------------------------------------------------------------
 
+const BREAKDOWN_TITLES: Record<DebtBreakdownKind, string> = {
+  next7: "Due in 7 days",
+  month: "Due this month",
+  overdue: "Overdue",
+  outstanding: "Outstanding debt",
+};
+
 function DebtWorkspace() {
-  const { combined, today, payments, overview: o } = useDebtView();
+  const { today, debts, payments, overview: o } = useDebtView();
+  const [open, setOpen] = useState<DebtBreakdownKind | null>(null);
   const upNext = payments.filter((p) => p.remaining > 0).slice(0, 5);
   const month = new Date(`${today}T00:00:00`).toLocaleDateString("en-MY", { month: "long" });
   const monthEnd = formatDateShort(o.monthEnd);
   const next = o.nextPayment;
+  const breakdown = open ? debtBreakdown(debts, payments, open, today) : [];
+
+  // Tapping a total shows it split by creditor; tapping it again hides it.
+  const Total = ({ kind, children }: { kind: DebtBreakdownKind; children: React.ReactNode }) => (
+    <button
+      type="button"
+      aria-expanded={open === kind}
+      aria-controls="debt-breakdown"
+      onClick={() => setOpen(open === kind ? null : kind)}
+      className={`press rounded-2xl text-left transition-shadow [&>div]:h-full ${open === kind ? "ring-2 ring-accent" : ""}`}
+    >
+      {children}
+    </button>
+  );
 
   return (
     <div key="debt" className="animate-rise space-y-8">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="px-1 text-subhead text-label-2">
-          <span className="font-semibold text-label">Outstanding debt</span> is everything you still owe.{" "}
-          <span className="font-semibold text-label">Repayments due</span> are only the parts scheduled for that period.
-        </p>
-        <DebtScopeControl className="w-full shrink-0 sm:w-72" />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatCard label="Outstanding debt" value={o.totalOutstanding} icon={Landmark} variant="navy" subtitle="Total still owed" />
-        <StatCard label="Due this month" value={o.dueThisMonth} icon={CalendarClock} variant="warning" subtitle={`Repayments in ${month}`} />
-        <StatCard label="Due in 7 days" value={o.dueNext7Days} icon={Clock} variant="warning" subtitle="Today to a week from now" />
-        <StatCard label="Overdue" value={o.overdue} icon={AlertTriangle} variant="expense" subtitle="Repayments past due" />
-        <StatCard label="Active debts" value={o.activeDebts} icon={CreditCard} plain subtitle={combined ? "Personal and business" : "Not yet paid off"} />
-        <Link href="/debts" className="press rounded-2xl">
+      <div className="space-y-3">
+        <Link href="/debts" className="press block rounded-2xl">
           <StatCard
             label="Next payment"
             value={next ? next.remaining : 0}
@@ -341,6 +348,44 @@ function DebtWorkspace() {
             subtitle={next ? `${next.payee} · ${formatDateShort(next.dueDate)} · ${countdown(next.dueDate, today, next.status)}` : "Nothing scheduled"}
           />
         </Link>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Total kind="next7">
+            <StatCard label="Due in 7 days" value={o.dueNext7Days} icon={Clock} variant="warning" subtitle="Today to a week from now" />
+          </Total>
+          <Total kind="month">
+            <StatCard label="Due this month" value={o.dueThisMonth} icon={CalendarClock} variant="warning" subtitle={`Repayments in ${month}`} />
+          </Total>
+          <Total kind="overdue">
+            <StatCard label="Overdue" value={o.overdue} icon={AlertTriangle} variant="expense" subtitle="Repayments past due" />
+          </Total>
+          <Total kind="outstanding">
+            <StatCard label="Outstanding debt" value={o.totalOutstanding} icon={Landmark} variant="navy" subtitle="Total still owed" />
+          </Total>
+        </div>
+
+        {open ? (
+          <div id="debt-breakdown" className="animate-rise rounded-2xl bg-surface p-4 shadow-card">
+            <p className="text-subhead font-medium text-label-2">{BREAKDOWN_TITLES[open]} by creditor</p>
+            {breakdown.length === 0 ? (
+              <p className="mt-2 text-subhead text-label-2">Nothing here. Nice.</p>
+            ) : (
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {breakdown.map((b) => (
+                  <li key={b.name} className="flex items-baseline gap-1.5 rounded-full bg-gray/12 px-3.5 py-1.5 text-subhead">
+                    <span className="text-label">{b.name}:</span>
+                    <span className="tabular font-semibold text-label">{formatRM(b.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : (
+          <p className="px-1 text-footnote text-label-2">
+            <span className="font-semibold text-label">Outstanding debt</span> is everything you still owe. The other totals are only
+            the repayments scheduled for that period. Tap a total to see it by creditor.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-4">
@@ -348,14 +393,14 @@ function DebtWorkspace() {
           {upNext.length === 0 ? (
             <p className="py-10 text-center text-subhead text-label-2">Nothing to pay. Nice.</p>
           ) : (
-            <PaymentRows items={upNext} today={today} combined={combined} compact />
+            <PaymentRows items={upNext} today={today} compact />
           )}
         </Card>
 
         <Card title="Available cash" flush>
           <dl className="grouped px-4">
             <div className="flex justify-between py-3">
-              <dt className="text-body text-label-2">{combined ? "Balance (both profiles)" : "Balance"}</dt>
+              <dt className="text-body text-label-2">Balance</dt>
               <dd className="tabular text-body">{formatRM(o.balance)}</dd>
             </div>
             <div className="flex justify-between py-3">

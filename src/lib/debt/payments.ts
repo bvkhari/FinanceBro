@@ -207,6 +207,36 @@ export function debtOverview(debts: Debt[], payments: PaymentItem[], balance: nu
   };
 }
 
+export type DebtBreakdownKind = "outstanding" | "month" | "next7" | "overdue";
+
+/**
+ * One amount per creditor behind a dashboard total: what is still owed
+ * ("outstanding") or what is due this month, in the next 7 days or overdue.
+ * Debts with the same name are added together. Largest first; the amounts
+ * add up to the matching `debtOverview` figure.
+ */
+export function debtBreakdown(
+  debts: Debt[],
+  payments: PaymentItem[],
+  kind: DebtBreakdownKind,
+  today: string
+): { name: string; amount: number }[] {
+  const rows: [string, number][] =
+    kind === "outstanding"
+      ? debts.filter((d) => d.status === "active").map((d) => [d.name, cents(d.outstandingBalance)])
+      : filterPayments(
+          payments.filter((p) => p.kind === "debt"),
+          kind,
+          today
+        ).map((p) => [p.payee, cents(p.remaining)]);
+  const byName = new Map<string, number>();
+  for (const [name, c] of rows) byName.set(name, (byName.get(name) ?? 0) + c);
+  return [...byName]
+    .filter(([, c]) => c > 0)
+    .map(([name, c]) => ({ name, amount: c / 100 }))
+    .sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name));
+}
+
 export interface ExtraPaymentScenario {
   extra: number;
   outstandingAfter: number;

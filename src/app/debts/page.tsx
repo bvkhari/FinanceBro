@@ -27,7 +27,6 @@ import {
 } from "@/lib/debt/labels";
 import { PaymentModal, PaymentTarget } from "@/components/debt/PaymentModal";
 import { PaymentRows } from "@/components/debt/PaymentRows";
-import { DebtScopeControl, ProfileTag } from "@/components/debt/DebtScopeControl";
 import { useDebtView } from "@/lib/debt/useDebtView";
 import { EditInstalmentModal, ExtendScheduleModal, RescheduleModal } from "@/components/debt/ScheduleModals";
 import { ScheduleDraft, ScheduleEditor, draftRepayment, emptyDraft, previewSchedule } from "@/components/debt/ScheduleEditor";
@@ -42,7 +41,7 @@ type Tab = "payments" | "debts";
 
 export default function DebtsPage() {
   const { mode, markCommitmentPaid } = useFinance();
-  const { combined, today, debts, payments } = useDebtView();
+  const { today, debts, payments } = useDebtView();
   const [tab, setTab] = useState<Tab>("payments");
   const [filter, setFilter] = useState<PaymentFilter>("all");
   const [view, setView] = useState<View>("active");
@@ -74,7 +73,7 @@ export default function DebtsPage() {
   useEffect(() => {
     setFlash(null);
     setExpanded(null);
-  }, [mode, combined]);
+  }, [mode]);
 
   const visible = useMemo(() => {
     const list = debts.filter((d) => view === "all" || d.status === view);
@@ -87,7 +86,7 @@ export default function DebtsPage() {
   const shown = useMemo(() => filterPayments(payments, filter, today), [payments, filter, today]);
   const unpaidCount = shown.filter((p) => p.remaining > 0).length;
 
-  const title = combined ? "All Debts" : mode === "business" ? "Business Debts" : "Personal Debts";
+  const title = mode === "business" ? "Business Debts" : "Personal Debts";
 
   return (
     <div className="mx-auto max-w-4xl px-4 pb-10 pt-2 sm:px-6 lg:px-8">
@@ -95,15 +94,13 @@ export default function DebtsPage() {
         title={title}
         subtitle="Who you need to pay and when, what you still owe, and the payments you've made."
         accessory={
-          combined ? undefined : (
-            <Button onClick={() => setShowAdd(true)} icon={<Plus className="h-4 w-4" strokeWidth={2.5} />} className="max-sm:w-full">
-              Add debt
-            </Button>
-          )
+          <Button onClick={() => setShowAdd(true)} icon={<Plus className="h-4 w-4" strokeWidth={2.5} />} className="max-sm:w-full">
+            Add debt
+          </Button>
         }
       />
 
-      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-5">
         <Segmented<Tab>
           aria-label="Section"
           className="w-full sm:w-56"
@@ -114,7 +111,6 @@ export default function DebtsPage() {
             { value: "debts", label: "Debts" },
           ]}
         />
-        <DebtScopeControl className="w-full sm:w-72" />
       </div>
 
       {flash && (
@@ -177,7 +173,6 @@ export default function DebtsPage() {
               <PaymentRows
                 items={shown}
                 today={today}
-                combined={combined}
                 onPay={(p) =>
                   setPaying({ payee: p.payee, instalmentId: p.instalmentId!, dueDate: p.dueDate, amount: p.amount, amountPaid: p.amountPaid, remaining: p.remaining })
                 }
@@ -241,8 +236,7 @@ export default function DebtsPage() {
                 <DebtCard
                   key={debt.id}
                   debt={debt}
-                  combined={combined}
-                  expanded={expanded === debt.id}
+                    expanded={expanded === debt.id}
                   onToggle={() => setExpanded(expanded === debt.id ? null : debt.id)}
                   onEdit={() => setEditing(debt)}
                   onPay={(i) =>
@@ -320,7 +314,6 @@ const EMPTY_PAYMENTS: Record<PaymentFilter, string> = {
 
 function DebtCard({
   debt,
-  combined,
   expanded,
   onToggle,
   onEdit,
@@ -330,7 +323,6 @@ function DebtCard({
   onExtend,
 }: {
   debt: Debt;
-  combined: boolean;
   expanded: boolean;
   onToggle: () => void;
   onEdit: () => void;
@@ -352,7 +344,6 @@ function DebtCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-headline text-label">{debt.name}</h3>
-            {combined && <ProfileTag mode={debt.mode} />}
             <span className="rounded-full bg-gray/12 px-2 py-0.5 text-caption font-medium text-label-2">
               {DEBT_TYPE_LABELS[debt.debtType]}
             </span>

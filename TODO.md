@@ -107,7 +107,7 @@ Nota dari test Fasa 2:
 - Bayar hutang Personal dari view Combined semasa profile aktif Business: baki betul (RM359.60 → RM269.70)
 - Mark paid bil dengan double-click: satu transaksi sahaja (`markCommitmentPaid` kini hanya rekod sekali)
 - Layout telefon: butang aksi turun ke baris bawah, filter boleh scroll
-- Combined tak disimpan bila reload page; dia balik ke profile aktif
+- Pilihan Combined disimpan dalam browser (macam pilihan profile), jadi kekal lepas reload. Diuji: Combined → reload kekal Combined, Personal → reload kekal Personal
 - Dashboard tab Expenses masih kira bayaran hutang sebagai expense (step 9)
 
 ## Fasa 3: Logik duit

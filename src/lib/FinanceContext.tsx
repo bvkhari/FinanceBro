@@ -116,6 +116,24 @@ function balanceOf(d?: ProfileData): number {
 
 const MODE_KEY = "financebro-ai-mode";
 
+const SCOPE_KEY = "financebro-ai-debt-scope";
+
+function loadScope(): DebtScope {
+  try {
+    return localStorage.getItem(SCOPE_KEY) === "combined" ? "combined" : "mode";
+  } catch {
+    return "mode";
+  }
+}
+
+function saveScope(scope: DebtScope) {
+  try {
+    localStorage.setItem(SCOPE_KEY, scope);
+  } catch {
+    // ignore
+  }
+}
+
 function loadMode(): AppMode {
   try {
     return localStorage.getItem(MODE_KEY) === "business" ? "business" : "individual";
@@ -129,7 +147,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<Partial<Record<AppMode, ProfileData>>>({});
   const [error, setError] = useState<string | null>(null);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
-  const [debtScope, setDebtScope] = useState<DebtScope>("mode");
+  const [debtScope, setDebtScopeState] = useState<DebtScope>("mode");
 
   const reload = useCallback(async (m: AppMode) => {
     try {
@@ -147,13 +165,21 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setModeState(loadMode());
+    setDebtScopeState(loadScope());
     reloadAll();
   }, [reloadAll]);
+
+  // Saved per browser, like the profile, so a reload keeps the combined view.
+  const setDebtScope = useCallback((scope: DebtScope) => {
+    setDebtScopeState(scope);
+    saveScope(scope);
+  }, []);
 
   const setMode = useCallback((m: AppMode) => {
     setModeState(m);
     // Picking a profile leaves the combined debt view.
-    setDebtScope("mode");
+    setDebtScopeState("mode");
+    saveScope("mode");
     try {
       localStorage.setItem(MODE_KEY, m);
     } catch {

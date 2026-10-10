@@ -8,4 +8,4 @@ export const navItems = [
   { href: "/reports", label: "Reports", icon: FileText },
 ] as const;
 
-export const pageTitles: Record<string, string> = Object.fromEntries(navItems.map((i) => [i.href, i.label]));
+export const pageTitles: Record<string, string> = { ...Object.fromEntries(navItems.map((i) => [i.href, i.label])), "/agent": "WorkBuddy Agent" };

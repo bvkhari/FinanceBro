@@ -298,10 +298,10 @@ function transactionFields(t: Partial<Transaction>) {
   return row;
 }
 
-export async function insertTransaction(profileId: string, mode: AppMode, t: NewTransaction) {
+export async function insertTransaction(profileId: string, mode: AppMode, t: NewTransaction, createdBy: "user" | "agent" = "user") {
   const row = check(
     await supabase.from("transactions")
-      .insert({ ...transactionFields(t), profile_id: profileId, source: "manual", created_by: "user" })
+      .insert({ ...transactionFields(t), profile_id: profileId, source: "manual", created_by: createdBy })
       .select().single()
   ) as TransactionRow;
   return mapTransaction(row, mode);
@@ -464,6 +464,98 @@ export async function rescheduleDebt(debtId: string, frequency: DebtFrequency, r
   ) as number;
 }
 
+// ---------- budgets, expected income and agent runs (used by the AI agent) ----------
+
+export interface BudgetLine {
+  category: string;
+  limit: number;
+  essential: boolean;
+  createdBy: "user" | "agent";
+}
+
+/** Budget lines for one month (`month` = first day) and the profile's safety buffer %. */
+export async function fetchBudgetLines(profileId: string, month: string) {
+  const [rowsRes, pRes] = await Promise.all([
+    supabase.from("budgets").select("category, limit_amount, essential, created_by").eq("profile_id", profileId).eq("month", month).order("category"),
+    supabase.from("profiles").select("safety_buffer_pct").eq("id", profileId).single(),
+  ]);
+  const rows = check(rowsRes);
+  const p = check(pRes);
+  return {
+    budgets: (rows as { category: string; limit_amount: string; essential: boolean; created_by: "user" | "agent" }[]).map((r) => ({
+      category: r.category,
+      limit: Number(r.limit_amount),
+      essential: r.essential,
+      createdBy: r.created_by,
+    })) as BudgetLine[],
+    safetyBufferPct: Number((p as { safety_buffer_pct: string }).safety_buffer_pct),
+  };
+}
+
+/** Creates or replaces one budget line (one per profile, month and category). */
+export async function upsertBudget(profileId: string, month: string, b: Omit<BudgetLine, "createdBy">, createdBy: "user" | "agent" = "user") {
+  check(
+    await supabase.from("budgets").upsert(
+      { profile_id: profileId, month, category: b.category, limit_amount: b.limit, essential: b.essential, created_by: createdBy },
+      { onConflict: "profile_id,month,category" }
+    )
+  );
+}
+
+export type IncomeSource = "allowance" | "salary" | "PTPTN" | "sales" | "other";
+
+export async function insertExpectedIncome(profileId: string, i: { source: IncomeSource; expectedAmount: number; expectedDate: string; confirmed: boolean }) {
+  const row = check(
+    await supabase.from("income_schedule")
+      .insert({ profile_id: profileId, source: i.source, expected_amount: i.expectedAmount, expected_date: i.expectedDate, confirmed: i.confirmed })
+      .select("id").single()
+  ) as { id: string };
+  return row.id;
+}
+
+export interface AgentActivity {
+  id: string;
+  tool: string;
+  input: Record<string, unknown>;
+  ok: boolean;
+  summary: string;
+  isWrite: boolean;
+  createdAt: string;
+}
+
+export async function profileIdFor(mode: AppMode): Promise<string> {
+  const p = check(
+    await supabase.from("profiles").select("id").eq("mode", toDbMode(mode)).order("created_at").limit(1).single()
+  ) as { id: string };
+  return p.id;
+}
+
+/** Records one tool call made by an outside agent (WorkBuddy over MCP). */
+export async function logAgentActivity(profileId: string, a: Omit<AgentActivity, "id" | "createdAt">) {
+  check(
+    await supabase.from("agent_activity").insert({
+      profile_id: profileId, tool: a.tool, input: a.input, ok: a.ok, summary: a.summary, is_write: a.isWrite,
+    })
+  );
+}
+
+export async function fetchAgentActivity(profileId: string, limit = 50): Promise<AgentActivity[]> {
+  const rows = check(
+    await supabase.from("agent_activity").select("*").eq("profile_id", profileId).order("created_at", { ascending: false }).limit(limit)
+  ) as { id: string; tool: string; input: Record<string, unknown>; ok: boolean; summary: string; is_write: boolean; created_at: string }[];
+  return rows.map((r) => ({ id: r.id, tool: r.tool, input: r.input, ok: r.ok, summary: r.summary, isWrite: r.is_write, createdAt: r.created_at }));
+}
+
+export function subscribeToAgentActivity(profileId: string, onChange: () => void) {
+  const channel = supabase
+    .channel(`agent-activity-${profileId}`)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "agent_activity", filter: `profile_id=eq.${profileId}` }, onChange)
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 /** Calls `onChange` whenever any row for this profile changes (agent writes, other tabs). */
 export function subscribeToProfile(profileId: string, onChange: () => void) {
   const filter = `profile_id=eq.${profileId}`;
@@ -474,6 +566,7 @@ export function subscribeToProfile(profileId: string, onChange: () => void) {
     .on("postgres_changes", { event: "*", schema: "public", table: "budgets", filter }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "debts", filter }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "debt_instalments", filter }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "income_schedule", filter }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `id=eq.${profileId}` }, onChange)
     .subscribe();
   return () => {

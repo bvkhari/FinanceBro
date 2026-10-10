@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import { useFinance } from "@/lib/FinanceContext";
 import { ChatMessage, AgentExecutionStep, TransactionPreviewData, TransactionType } from "@/lib/types";
 import { formatRM, formatDateShort, todayISO } from "@/lib/utils";
 import { answerDebtQuestion } from "@/lib/debt/agent";
 import { buildPayments } from "@/lib/debt/payments";
+import { TOOL_LABELS } from "@/lib/agent/labels";
 import {
   ArrowUp,
   Sparkles,
@@ -22,6 +24,8 @@ import {
 } from "lucide-react";
 
 const SUGGESTED_PROMPTS = [
+  "Bro, I spent RM12 on nasi lemak and RM8.40 on Grab today.",
+  "Bro, build me a plan to clear my debts.",
   "Bro, I spent RM59 today.",
   "Bro, how much money do I have left?",
   "Bro, can I afford to spend RM300?",
@@ -46,7 +50,7 @@ function welcomeMessage(): ChatMessage {
   return {
     id: "welcome",
     role: "assistant",
-    content: `Hey bro. Tell me what you spent, or ask whether you can afford something. I'll check it against your balance and the bills you still owe.`,
+    content: `Hey bro, I'm FinanceBro, powered by WorkBuddy. Tell me what you spent or paid and I'll key it in. Ask whether you can afford something, or ask me to build you a plan. I work from your real records.`,
     timestamp: new Date().toISOString(),
     isDemoPreview: true,
   };
@@ -63,6 +67,9 @@ export default function FinanceBroAIPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sentFromQuery = useRef(false);
+  // WorkBuddy agent conversation for the current profile; "offline" falls back to quick answers.
+  const agentSession = useRef<string | undefined>(undefined);
+  const [agentStatus, setAgentStatus] = useState<"unknown" | "ready" | "offline" | "signin">("unknown");
 
   // Switching mode starts a fresh conversation.
   const lastMode = useRef(mode);
@@ -71,6 +78,7 @@ export default function FinanceBroAIPage() {
     lastMode.current = mode;
     setMessages([welcomeMessage()]);
     setShowSuggestions(true);
+    agentSession.current = undefined;
   }, [mode]);
 
   // Prompts handed over from the dashboard (?q=...) send straight away.
@@ -111,12 +119,105 @@ export default function FinanceBroAIPage() {
     setShowSuggestions(false);
     setIsProcessing(true);
 
-    // Simulate AI agent workflow
-    simulateAgentResponse(userText, (assistantMsg) => {
+    const finish = (assistantMsg: ChatMessage) => {
       setMessages((prev) => [...prev, assistantMsg]);
       setIsProcessing(false);
+    };
+
+    askWorkBuddy(userText, finish).then((handled) => {
+      // Agent unavailable: fall back to the built-in quick answers.
+      if (!handled) simulateAgentResponse(userText, finish);
     });
   };
+
+  /**
+   * Sends the message to the WorkBuddy agent and shows its steps live.
+   * Resolves false when the agent can't run here, so the caller can fall back.
+   */
+  async function askWorkBuddy(userText: string, callback: (msg: ChatMessage) => void): Promise<boolean> {
+    const progressId = `agent-progress-${Date.now()}`;
+    const steps: AgentExecutionStep[] = [
+      { id: "think", step: 1, label: "Understanding request", status: "active", description: "WorkBuddy is reading your message" },
+    ];
+    const showSteps = () =>
+      setMessages((prev) => {
+        const card: ChatMessage = { id: progressId, role: "assistant", content: "", timestamp: new Date().toISOString(), agentSteps: [...steps] };
+        return prev.some((m) => m.id === progressId) ? prev.map((m) => (m.id === progressId ? card : m)) : [...prev, card];
+      });
+    const removeSteps = () => setMessages((prev) => prev.filter((m) => m.id !== progressId));
+
+    let res: Response;
+    try {
+      res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userText, mode, sessionId: agentSession.current }),
+      });
+    } catch {
+      setAgentStatus("offline");
+      return false;
+    }
+    if (!res.ok || !res.body) {
+      setAgentStatus("offline");
+      return false;
+    }
+    showSteps();
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? "";
+      for (const raw of events) {
+        if (!raw.startsWith("data: ")) continue;
+        const ev = JSON.parse(raw.slice(6));
+        if (ev.type === "session") {
+          agentSession.current = ev.sessionId;
+        } else if (ev.type === "step") {
+          steps[0].status = "completed";
+          const existing = steps.find((s) => s.id === ev.id);
+          const status = ev.status === "active" ? "active" : ev.status === "error" ? "error" : "completed";
+          if (existing) existing.status = status;
+          else steps.push({ id: ev.id, step: steps.length + 1, label: TOOL_LABELS[ev.tool] ?? ev.tool, status, description: "Using FinanceBro's records" });
+          showSteps();
+        } else if (ev.type === "done") {
+          setAgentStatus("ready");
+          agentSession.current = ev.sessionId;
+          removeSteps();
+          callback({
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            content: plainText(ev.reply) || "Done.",
+            timestamp: new Date().toISOString(),
+            agentSteps: steps.slice(1).map((s) => ({ ...s, status: s.status === "error" ? "error" : "completed" })),
+          });
+          return true;
+        } else if (ev.type === "error") {
+          removeSteps();
+          if (ev.code === "not_signed_in") {
+            setAgentStatus("signin");
+            agentSession.current = undefined;
+            return false;
+          }
+          setAgentStatus("ready");
+          callback({
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            content: `WorkBuddy hit a problem: ${ev.message}\n\nTry again in a moment.`,
+            timestamp: new Date().toISOString(),
+          });
+          return true;
+        }
+      }
+    }
+    removeSteps();
+    setAgentStatus("offline");
+    return false;
+  }
 
   function simulateAgentResponse(userText: string, callback: (msg: ChatMessage) => void) {
     const lowerText = userText.toLowerCase();
@@ -423,7 +524,18 @@ export default function FinanceBroAIPage() {
             <Sparkles className="h-6 w-6" />
           </span>
           <h1 className="mt-2 text-title3">FinanceBro AI</h1>
-          <p className="text-footnote text-label-2">Demo · replies are simulated</p>
+          <p className="text-footnote text-label-2">
+            {agentStatus === "signin" ? (
+              <>WorkBuddy isn&apos;t signed in on this computer, so these are quick answers. </>
+            ) : agentStatus === "offline" ? (
+              <>WorkBuddy agent unavailable here, so these are quick answers. </>
+            ) : (
+              <>Powered by WorkBuddy · </>
+            )}
+            <Link href="/agent" className="text-accent-text">
+              {agentStatus === "signin" || agentStatus === "offline" ? "Set it up" : "Activity"}
+            </Link>
+          </p>
         </div>
 
         <div className="space-y-2 py-4">
@@ -544,7 +656,7 @@ function ChatMessageBubble({
         <details className="group px-1 text-footnote text-label-2">
           <summary className="flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden">
             <Check className="h-3.5 w-3.5 text-positive" strokeWidth={3} />
-            {message.agentSteps.length} steps
+            {message.agentSteps.length} step{message.agentSteps.length === 1 ? "" : "s"}
             <ChevronRight className="h-3.5 w-3.5 transition-transform duration-300 ease-spring group-open:rotate-90" />
           </summary>
           <ol className="mt-1.5 space-y-1 pl-5">
@@ -629,6 +741,16 @@ function TransactionPreviewCard({
       </div>
     </div>
   );
+}
+
+/** Agents write light markdown; the chat bubble shows plain text. */
+function plainText(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[*]\s+/gm, "- ")
+    .replace(/`([^`]+)`/g, "$1")
+    .trim();
 }
 
 function TypingIndicator() {

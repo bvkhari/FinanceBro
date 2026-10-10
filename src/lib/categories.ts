@@ -35,6 +35,12 @@ export const TRANSACTION_CATEGORIES: Record<AppMode, string[]> = {
   ],
 };
 
+/** Bill categories, per profile. Keep in step with kindToCategory / categoryToKind in db.ts. */
+export const BILL_CATEGORIES: Record<AppMode, string[]> = {
+  individual: ["Rent", "Internet", "Utilities", "Instalments", "Other"],
+  business: ["Supplier Payments", "Business Rent", "Instalments", "Other Business Bills", "Other"],
+};
+
 const INCOME_CATEGORIES = new Set([
   "Allowance", "Salary", "Part-time income", "Sales Revenue", "Delivery Sales", "Service Income", "Other Business Income",
 ]);

@@ -9,22 +9,7 @@ import { Input, Select } from "@/components/ui/Input";
 import { Segmented } from "@/components/ui/Segmented";
 import { formatRM, formatDate, formatDateShort, getRelativeTime, isOverdue, daysUntil, todayISO } from "@/lib/utils";
 import { AlertTriangle, Repeat, Check } from "lucide-react";
-
-export const INDIVIDUAL_COMMITMENT_CATEGORIES = [
-  "Rent",
-  "Internet",
-  "Utilities",
-  "Instalments",
-  "Other",
-];
-
-export const BUSINESS_COMMITMENT_CATEGORIES = [
-  "Supplier Payments",
-  "Business Rent",
-  "Instalments",
-  "Other Business Bills",
-  "Other",
-];
+import { BILL_CATEGORIES } from "@/lib/categories";
 
 /**
  * The Bills report on the Payments page: totals, what's next, and every bill.
@@ -37,7 +22,7 @@ export function BillsSection({ adding, onAddingChange }: { adding: boolean; onAd
   const [editingId, setEditingId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<PaymentStatus | "">("");
 
-  const categories = mode === "individual" ? INDIVIDUAL_COMMITMENT_CATEGORIES : BUSINESS_COMMITMENT_CATEGORIES;
+  const categories = BILL_CATEGORIES[mode];
 
   const totalUpcoming = commitments
     .filter((c) => c.status === "upcoming" || c.status === "overdue")

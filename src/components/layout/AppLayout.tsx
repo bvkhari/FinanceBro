@@ -1,16 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { TopNav } from "./TopNav";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const pathname = usePathname();
-
-  // The hello page is a full-screen chooser without app chrome
-  if (pathname === "/") return <>{children}</>;
 
   return (
     <div className="flex min-h-screen bg-slate-50">

@@ -4,14 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { navItems } from "./nav";
 
-// iOS tab bar for phones and tablets. Content scrolls under the material.
+// iOS tab bar, the only navigation at every width. Content scrolls under the material.
 export function TabBar() {
   const pathname = usePathname();
 
   return (
     <nav
       aria-label="Main"
-      className="material material-edge-t fixed inset-x-0 bottom-0 z-30 pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="material material-edge-t fixed inset-x-0 bottom-0 z-30 pb-[env(safe-area-inset-bottom)]"
     >
       <ul className="mx-auto grid h-[3.25rem] max-w-lg grid-cols-5">
         {navItems.map((item) => {

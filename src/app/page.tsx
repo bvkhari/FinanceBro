@@ -322,6 +322,8 @@ function DebtWorkspace() {
   const groups30 = groupByCreditor(due30, debts);
   const overdue = totalDue(due30.filter((p) => p.status === "overdue"));
   const due7 = totalDue(dueWithin(payments, 7, today));
+  const debtDue30 = totalDue(due30.filter((p) => p.kind === "debt"));
+  const debtSharePct = o.totalOutstanding > 0 ? Math.min(100, (debtDue30 / o.totalOutstanding) * 100) : 0;
   const monthEnd = formatDateShort(o.monthEnd);
   const sheetItems = sheet ? dueWithin(payments, sheet, today) : [];
 
@@ -330,36 +332,48 @@ function DebtWorkspace() {
     <div key="debt" className="animate-rise space-y-8">
       {/* What has to go out in the next 30 days, every BNPL, card, loan and bill together. Tap for the list by creditor. */}
       <section className="overflow-hidden rounded-2xl bg-surface shadow-card">
-        <button type="button" onClick={() => setSheet(30)} className="press group flex w-full items-end justify-between gap-4 p-5 text-left">
-          <div className="min-w-0">
-            <p className="text-subhead text-label-2">To pay in the next 30 days</p>
-            <p className="tabular mt-1 text-large-title text-label">{formatRM(totalDue(due30))}</p>
-            <p className="mt-1 truncate text-subhead text-label-2">
-              {due30.length === 0 ? (
-                "Nothing due. Nice."
-              ) : (
-                <>
-                  {due30.length} payment{due30.length === 1 ? "" : "s"} · {groups30.length} creditor{groups30.length === 1 ? "" : "s"}
-                  {overdue > 0 && <span className="font-medium text-negative"> · {formatRM(overdue)} overdue</span>}
-                </>
-              )}
-            </p>
-          </div>
-          <ChevronRight className="mb-1 h-5 w-5 shrink-0 text-label-3 transition-transform duration-300 ease-spring group-hover:translate-x-0.5" />
-        </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2">
+          <button type="button" onClick={() => setSheet(30)} className="press group flex w-full items-end justify-between gap-4 p-5 text-left">
+            <div className="min-w-0">
+              <p className="text-subhead text-label-2">To pay in the next 30 days</p>
+              <p className="tabular mt-1 text-large-title text-label">{formatRM(totalDue(due30))}</p>
+              <p className="mt-1 truncate text-subhead text-label-2">
+                {due30.length === 0
+                  ? "Nothing due. Nice."
+                  : `${due30.length} payment${due30.length === 1 ? "" : "s"} · ${groups30.length} creditor${groups30.length === 1 ? "" : "s"}`}
+              </p>
+            </div>
+            <ChevronRight className="mb-1 h-5 w-5 shrink-0 text-label-3 transition-transform duration-300 ease-spring group-hover:translate-x-0.5" />
+          </button>
+
+          {/* Everything still owed, not just what is due: the bar shows how much of it falls due in the next 30 days. */}
+          <Link
+            href="/debts?tab=debts"
+            className="press group flex items-end justify-between gap-4 p-5 shadow-[inset_0_0.5px_0_var(--separator)] hover:bg-gray/8 sm:shadow-[inset_0.5px_0_0_var(--separator)]"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-subhead text-label-2">Total outstanding debt</p>
+              <p className="tabular mt-1 text-large-title text-label">{formatRM(o.totalOutstanding)}</p>
+              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-gray/16" aria-hidden>
+                <div className="h-full rounded-full bg-warning" style={{ width: `${debtSharePct}%` }} />
+              </div>
+              <p className="mt-1.5 truncate text-subhead text-label-2">
+                {o.activeDebts} active debt{o.activeDebts === 1 ? "" : "s"} · {formatRM(debtDue30)} due in 30 days
+              </p>
+            </div>
+            <ChevronRight className="mb-1 h-5 w-5 shrink-0 text-label-3 transition-transform duration-300 ease-spring group-hover:translate-x-0.5" />
+          </Link>
+        </div>
 
         <div className="grid grid-cols-2 shadow-[inset_0_0.5px_0_var(--separator)]">
           <button type="button" onClick={() => setSheet(7)} className="press px-5 py-3.5 text-left hover:bg-gray/8">
             <p className="text-footnote text-label-2">Next 7 days</p>
             <p className="tabular mt-0.5 text-headline text-label">{formatRM(due7)}</p>
           </button>
-          <Link href="/debts?tab=debts" className="press flex items-center justify-between gap-2 px-5 py-3.5 shadow-[inset_0.5px_0_0_var(--separator)] hover:bg-gray/8">
-            <span>
-              <span className="block text-footnote text-label-2">Total debt</span>
-              <span className="tabular mt-0.5 block text-headline text-label">{formatRM(o.totalOutstanding)}</span>
-            </span>
-            <ChevronRight className="h-4 w-4 shrink-0 text-label-3" />
-          </Link>
+          <button type="button" onClick={() => setSheet(30)} className="press px-5 py-3.5 text-left shadow-[inset_0.5px_0_0_var(--separator)] hover:bg-gray/8">
+            <p className="text-footnote text-label-2">Overdue</p>
+            <p className={`tabular mt-0.5 text-headline ${overdue > 0 ? "text-negative" : "text-label"}`}>{formatRM(overdue)}</p>
+          </button>
         </div>
       </section>
 

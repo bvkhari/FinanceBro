@@ -246,3 +246,11 @@ export function extraPaymentScenario(debt: Debt, extra: number, today: string): 
     interestSavedEstimate: rate === undefined ? undefined : Math.round(interest) / 100,
   };
 }
+
+/** One sentence on how an extra payment changes the schedule. */
+export function payoffSummary(s: ExtraPaymentScenario, fmt: (date: string) => string): string {
+  if (s.outstandingAfter === 0) return "That pays it off completely, with nothing left to schedule.";
+  const n = s.instalmentsBefore - s.instalmentsAfter;
+  if (n === 0) return `Not enough to clear a whole instalment; the last one (${fmt(s.payoffBefore!)}) gets smaller.`;
+  return `Finish ${n} instalment${n === 1 ? "" : "s"} sooner: last payment ${fmt(s.payoffAfter!)} instead of ${fmt(s.payoffBefore!)}.`;
+}

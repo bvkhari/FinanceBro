@@ -33,7 +33,7 @@ import { EditInstalmentModal, ExtendScheduleModal, RescheduleModal } from "@/com
 import { ScheduleDraft, ScheduleEditor, draftRepayment, emptyDraft, previewSchedule } from "@/components/debt/ScheduleEditor";
 import { spendingCategories } from "@/lib/categories";
 import { downloadCsv } from "@/lib/csv";
-import { PAYMENT_FILTERS, PaymentFilter, PaymentItem, countdown, extraPaymentScenario, filterPayments, totalDue, totalPaid } from "@/lib/debt/payments";
+import { PAYMENT_FILTERS, PaymentFilter, PaymentItem, countdown, extraPaymentScenario, filterPayments, payoffSummary, totalDue, totalPaid } from "@/lib/debt/payments";
 import { toCents } from "@/lib/debt/schedule";
 
 type View = "active" | "paid_off" | "all";
@@ -526,9 +526,7 @@ function ExtraPayment({ debt }: { debt: Debt }) {
             {s.instalmentsBefore > 1 && " Your next payments stay the same."}
           </li>
           <li>
-            {s.instalmentsAfter < s.instalmentsBefore
-              ? `Finish ${s.instalmentsBefore - s.instalmentsAfter} instalment${s.instalmentsBefore - s.instalmentsAfter === 1 ? "" : "s"} sooner: last payment ${s.payoffAfter ? formatDate(s.payoffAfter) : "none left"} instead of ${formatDate(s.payoffBefore!)}.`
-              : `Not enough to clear a whole instalment; the last one (${formatDate(s.payoffBefore!)}) gets smaller.`}
+            {payoffSummary(s, formatDate)}
           </li>
           <li className="text-label-2">
             {s.interestSavedEstimate !== undefined

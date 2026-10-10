@@ -76,7 +76,7 @@ describe("answerDebtQuestion: the spec's example questions", () => {
   it("Can I afford to pay an extra RM200 towards my loan?", () => {
     const a = ask("Can I afford to pay an extra RM200 towards my loan?")!;
     expect(a).toMatch(/^Yes\. Your projected cash on 31 Oct is RM 250\.00\. Paying RM 200\.00 extra now leaves RM 50\.00/);
-    expect(a).toContain("Abang Hafiz: owed drops from RM 80.00 to RM 0.00"); // the only loan-like debt
+    expect(a).toContain("Abang Hafiz (the only loan on this profile): owed drops from RM 80.00 to RM 0.00. That pays it off completely");
     expect(a).toContain("can't say how much interest");
     expect(ask("Can I afford an extra RM300 towards Shopee?")).toMatch(/^Not this month/);
   });

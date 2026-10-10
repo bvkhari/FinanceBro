@@ -11,7 +11,7 @@ import { Debt } from "../types";
 import { formatRM, formatDateShort } from "../utils";
 import type { CashFlow } from "../cashflow";
 import { DEBT_TYPE_LABELS } from "./labels";
-import { PaymentItem, addDays, countdown, debtOverview, extraPaymentScenario, filterPayments, totalDue } from "./payments";
+import { PaymentItem, addDays, countdown, debtOverview, extraPaymentScenario, filterPayments, payoffSummary, totalDue } from "./payments";
 
 export interface DebtAgentContext {
   debts: Debt[]; // active profile
@@ -62,9 +62,10 @@ export function answerDebtQuestion(text: string, ctx: DebtAgentContext): string 
     const target = hits.length === 1 ? hits[0] : byType.length === 1 ? byType[0] : undefined;
     if (target) {
       const s = extraPaymentScenario(target, amount, today);
+      const picked = hits.length === 1 ? "" : " (the only loan on this profile)";
       reply +=
-        `\n\n${target.name}: owed drops from ${formatRM(target.outstandingBalance)} to ${formatRM(s.outstandingAfter)}` +
-        (s.instalmentsAfter < s.instalmentsBefore ? `, finishing ${s.instalmentsBefore - s.instalmentsAfter} instalment(s) sooner.` : ".") +
+        `\n\n${target.name}${picked}: owed drops from ${formatRM(target.outstandingBalance)} to ${formatRM(s.outstandingAfter)}. ` +
+        payoffSummary(s, formatDateShort) +
         (s.interestSavedEstimate !== undefined ? ` About ${formatRM(s.interestSavedEstimate)} less interest (estimate at ${target.interestRate}% p.a.).` : " No interest rate on record, so I can't say how much interest you'd save.");
     } else {
       const options = (byType.length > 1 ? byType : active).map((d) => d.name).join(", ");

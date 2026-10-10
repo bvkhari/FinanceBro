@@ -11,6 +11,7 @@ import {
   totalDue,
   totalPaid,
   extraPaymentScenario,
+  payoffSummary,
 } from "./payments";
 
 const TODAY = "2026-10-10";
@@ -217,6 +218,11 @@ describe("extraPaymentScenario", () => {
     const s = extraPaymentScenario(withRate, 200, TODAY);
     const expected = (100 * 0.12 * daysBetween(TODAY, "2027-02-10")) / 365 + (100 * 0.12 * daysBetween(TODAY, "2027-01-10")) / 365;
     expect(s.interestSavedEstimate).toBe(Math.round(expected * 100) / 100);
+  });
+
+  it("says it in one sentence, including a full payoff", () => {
+    expect(payoffSummary(extraPaymentScenario(loan, 200, TODAY), (d) => d)).toBe("Finish 2 instalments sooner: last payment 2026-12-10 instead of 2027-02-10.");
+    expect(payoffSummary(extraPaymentScenario(loan, 400, TODAY), (d) => d)).toBe("That pays it off completely, with nothing left to schedule.");
   });
 
   it("caps the extra at what is owed", () => {

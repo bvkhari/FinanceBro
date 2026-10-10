@@ -20,22 +20,24 @@ import {
   AppNotification,
 } from "./types";
 import {
-  getInitialData,
-  NOTIFICATIONS,
-  INDIVIDUAL_PROFILE,
-  BUSINESS_PROFILE,
-} from "./mockData";
+  ProfileData,
+  fetchProfileData,
+  insertTransaction,
+  updateTransactionRow,
+  deleteTransactionRow,
+  insertCommitment,
+  updateCommitmentRow,
+  subscribeToProfile,
+} from "./db";
+import { daysUntil, todayISO } from "./utils";
 
 // ============================================================
 // FINANCE CONTEXT — Centralized state management
 // ============================================================
-// This is the single source of truth for all financial data.
-// All pages consume this context — no hardcoded numbers.
-//
-// The service-layer functions (getTransactions, addTransaction,
-// etc.) below simulate API calls using localStorage.
-// Backend integration: replace the function bodies with
-// real fetch() calls. The interface stays the same.
+// Supabase is the single source of truth. Both profiles are
+// loaded on mount; writes go to Supabase and the affected
+// profile is re-fetched. A Realtime subscription re-fetches
+// when anything else (e.g. the agent) changes the data.
 // ============================================================
 
 interface FinanceContextValue {
@@ -69,250 +71,165 @@ interface FinanceContextValue {
   unreadCount: number;
   markNotificationRead: (id: string) => void;
 
-  // Reset
+  // Reload everything from Supabase (`npm run seed` resets the data itself)
   resetData: () => void;
 }
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
 
-const STORAGE_KEY = "financebro-ai-data-v1";
+const MODE_KEY = "financebro-ai-mode";
 
-interface StoredData {
-  individual: {
-    transactions: Transaction[];
-    commitments: FinancialCommitment[];
-  };
-  business: {
-    transactions: Transaction[];
-    commitments: FinancialCommitment[];
-  };
-  mode: AppMode;
-}
-
-function loadStoredData(): StoredData | null {
-  if (typeof window === "undefined") return null;
+function loadMode(): AppMode {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as StoredData;
+    return localStorage.getItem(MODE_KEY) === "business" ? "business" : "individual";
   } catch {
-    return null;
+    return "individual";
   }
-}
-
-function saveStoredData(data: StoredData) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    // ignore
-  }
-}
-
-function getInitialStoredData(): StoredData {
-  const stored = loadStoredData();
-  if (stored) return stored;
-
-  const indData = getInitialData("individual");
-  const bizData = getInitialData("business");
-
-  return {
-    individual: {
-      transactions: indData.transactions,
-      commitments: indData.commitments,
-    },
-    business: {
-      transactions: bizData.transactions,
-      commitments: bizData.commitments,
-    },
-    mode: "individual",
-  };
 }
 
 export function FinanceProvider({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false);
-  const [mode, setMode] = useState<AppMode>("individual");
-  const [individualTransactions, setIndividualTransactions] = useState<Transaction[]>([]);
-  const [businessTransactions, setBusinessTransactions] = useState<Transaction[]>([]);
-  const [individualCommitments, setIndividualCommitments] = useState<FinancialCommitment[]>([]);
-  const [businessCommitments, setBusinessCommitments] = useState<FinancialCommitment[]>([]);
-  const [notifList, setNotifList] = useState<AppNotification[]>(NOTIFICATIONS);
+  const [mode, setModeState] = useState<AppMode>("individual");
+  const [data, setData] = useState<Partial<Record<AppMode, ProfileData>>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const data = getInitialStoredData();
-    setMode(data.mode);
-    setIndividualTransactions(data.individual.transactions);
-    setBusinessTransactions(data.business.transactions);
-    setIndividualCommitments(data.individual.commitments);
-    setBusinessCommitments(data.business.commitments);
-    setMounted(true);
+  const reload = useCallback(async (m: AppMode) => {
+    try {
+      const d = await fetchProfileData(m);
+      setData((prev) => ({ ...prev, [m]: d }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }, []);
 
-  // Persist to localStorage whenever data changes
+  const reloadAll = useCallback(() => {
+    setError(null);
+    return Promise.all([reload("individual"), reload("business")]);
+  }, [reload]);
+
   useEffect(() => {
-    if (!mounted) return;
-    saveStoredData({
-      individual: {
-        transactions: individualTransactions,
-        commitments: individualCommitments,
-      },
-      business: {
-        transactions: businessTransactions,
-        commitments: businessCommitments,
-      },
-      mode,
+    setModeState(loadMode());
+    reloadAll();
+  }, [reloadAll]);
+
+  const setMode = useCallback((m: AppMode) => {
+    setModeState(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const current = data[mode];
+  const profileId = current?.profile.id;
+
+  // Live updates: re-fetch the active profile whenever its rows change.
+  useEffect(() => {
+    if (!profileId) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const unsubscribe = subscribeToProfile(profileId, () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => reload(mode), 300);
     });
-  }, [mounted, mode, individualTransactions, businessTransactions, individualCommitments, businessCommitments]);
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [profileId, mode, reload]);
 
-  const profile = mode === "individual" ? INDIVIDUAL_PROFILE : BUSINESS_PROFILE;
+  const transactions = useMemo(() => current?.transactions ?? [], [current]);
+  const commitments = useMemo(() => current?.commitments ?? [], [current]);
 
-  const transactions = mode === "individual" ? individualTransactions : businessTransactions;
-  const commitments = mode === "individual" ? individualCommitments : businessCommitments;
+  // === Service-layer functions (Supabase) ===
 
-  // === Service-layer functions (simulated API) ===
+  /** Runs a write against the active profile, then re-fetches it. */
+  const write = useCallback(
+    (fn: (profileId: string) => Promise<unknown>) => {
+      if (!profileId) return;
+      fn(profileId)
+        .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => reload(mode));
+    },
+    [profileId, mode, reload]
+  );
 
   const addTransaction = useCallback(
-    (t: Omit<Transaction, "id" | "createdAt" | "mode">) => {
-      const newT: Transaction = {
-        ...t,
-        id: `t-${mode}-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        mode,
-      };
-      if (mode === "individual") {
-        setIndividualTransactions((prev) => [newT, ...prev]);
-      } else {
-        setBusinessTransactions((prev) => [newT, ...prev]);
-      }
-    },
-    [mode]
+    (t: Omit<Transaction, "id" | "createdAt" | "mode">) => write((pid) => insertTransaction(pid, mode, t)),
+    [write, mode]
   );
 
   const updateTransaction = useCallback(
-    (id: string, updates: Partial<Transaction>) => {
-      if (mode === "individual") {
-        setIndividualTransactions((prev) =>
-          prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
-        );
-      } else {
-        setBusinessTransactions((prev) =>
-          prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
-        );
-      }
-    },
-    [mode]
+    (id: string, updates: Partial<Transaction>) => write((pid) => updateTransactionRow(pid, id, updates)),
+    [write]
   );
 
   const deleteTransaction = useCallback(
-    (id: string) => {
-      if (mode === "individual") {
-        setIndividualTransactions((prev) => prev.filter((t) => t.id !== id));
-      } else {
-        setBusinessTransactions((prev) => prev.filter((t) => t.id !== id));
-      }
-    },
-    [mode]
+    (id: string) => write((pid) => deleteTransactionRow(pid, id)),
+    [write]
   );
 
   const addCommitment = useCallback(
-    (c: Omit<FinancialCommitment, "id" | "createdAt" | "mode">) => {
-      const newC: FinancialCommitment = {
-        ...c,
-        id: `c-${mode}-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        mode,
-      };
-      if (mode === "individual") {
-        setIndividualCommitments((prev) => [...prev, newC]);
-      } else {
-        setBusinessCommitments((prev) => [...prev, newC]);
-      }
-    },
-    [mode]
+    (c: Omit<FinancialCommitment, "id" | "createdAt" | "mode">) => write((pid) => insertCommitment(pid, mode, c)),
+    [write, mode]
   );
 
   const updateCommitment = useCallback(
-    (id: string, updates: Partial<FinancialCommitment>) => {
-      if (mode === "individual") {
-        setIndividualCommitments((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
-        );
-      } else {
-        setBusinessCommitments((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
-        );
-      }
-    },
-    [mode]
+    (id: string, updates: Partial<FinancialCommitment>) => write((pid) => updateCommitmentRow(pid, mode, id, updates)),
+    [write, mode]
   );
 
   const markCommitmentPaid = useCallback(
     (id: string) => {
-      // Mark commitment as paid
       const commitment = commitments.find((c) => c.id === id);
       if (!commitment) return;
-
-      // Create a linked transaction for the payment
-      const paidTransaction: Transaction = {
-        id: `t-${mode}-commit-${id}`,
-        mode,
-        name: commitment.name,
-        amount: commitment.amount,
-        type: "expense",
-        category: commitment.category,
-        date: new Date().toISOString().split("T")[0],
-        description: `Payment for ${commitment.name}`,
-        createdAt: new Date().toISOString(),
-      };
-
-      if (mode === "individual") {
-        setIndividualTransactions((prev) => [paidTransaction, ...prev]);
-        setIndividualCommitments((prev) =>
-          prev.map((c) =>
-            c.id === id
-              ? { ...c, status: "paid" as const, paidTransactionId: paidTransaction.id }
-              : c
-          )
-        );
-      } else {
-        setBusinessTransactions((prev) => [paidTransaction, ...prev]);
-        setBusinessCommitments((prev) =>
-          prev.map((c) =>
-            c.id === id
-              ? { ...c, status: "paid" as const, paidTransactionId: paidTransaction.id }
-              : c
-          )
-        );
-      }
+      // Record the payment the user made, then mark the commitment paid. Nothing moves money.
+      write(async (pid) => {
+        await insertTransaction(pid, mode, {
+          name: commitment.name,
+          amount: commitment.amount,
+          type: "expense",
+          category: commitment.category,
+          date: todayISO(),
+          description: `Payment for ${commitment.name}`,
+        });
+        await updateCommitmentRow(pid, mode, id, { status: "paid" });
+      });
     },
-    [mode, commitments]
+    [write, mode, commitments]
   );
+
+  // Monthly figures cover the current calendar month only.
+  const monthTransactions = useMemo(() => {
+    const month = todayISO().slice(0, 7);
+    return transactions.filter((t) => t.date.startsWith(month));
+  }, [transactions]);
+
+  const profile: FinancialProfile = current?.profile ?? {
+    id: "",
+    mode,
+    displayName: "",
+    accountType: "",
+    currency: "RM",
+    startingBalance: 0,
+    monthlyBudget: 0,
+    createdAt: "",
+  };
 
   // === Computed financial summary ===
   const summary: FinancialSummary = useMemo(() => {
-    const totalIncome = transactions
-      .filter((t) => t.type === "income")
-      .reduce((sum, t) => sum + t.amount, 0);
+    const sum = (list: Transaction[], type: Transaction["type"]) =>
+      list.filter((t) => t.type === type).reduce((s, t) => s + t.amount, 0);
 
-    const totalExpenses = transactions
-      .filter((t) => t.type === "expense")
-      .reduce((sum, t) => sum + t.amount, 0);
+    const totalIncome = sum(monthTransactions, "income");
+    const totalExpenses = sum(monthTransactions, "expense");
 
     const upcomingCommitments = commitments
       .filter((c) => c.status !== "paid")
-      .reduce((sum, c) => sum + c.amount, 0);
+      .reduce((s, c) => s + c.amount, 0);
 
-    const currentBalance = profile.startingBalance + totalIncome - totalExpenses;
-
-    // Budget remaining = monthly budget minus expenses
-    // (only count expenses that are NOT linked to commitments, to avoid double-counting)
-    const nonCommitmentExpenses = transactions
-      .filter((t) => t.type === "expense")
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    const budgetRemaining = Math.max(0, profile.monthlyBudget - nonCommitmentExpenses);
-
-    // Projected remaining = current balance minus upcoming commitments
+    const currentBalance = profile.startingBalance + sum(transactions, "income") - sum(transactions, "expense");
+    const budgetRemaining = Math.max(0, profile.monthlyBudget - totalExpenses);
     const projectedRemainingBalance = currentBalance - upcomingCommitments;
 
     return {
@@ -324,17 +241,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       budgetRemaining,
       projectedRemainingBalance,
     };
-  }, [transactions, commitments, profile, mode]);
+  }, [transactions, monthTransactions, commitments, profile.startingBalance, profile.monthlyBudget, mode]);
 
   // === Budget for weekly/monthly ===
   const budget: Budget = useMemo(() => {
-    const expenses = transactions
-      .filter((t) => t.type === "expense")
-      .reduce((sum, t) => sum + t.amount, 0);
-
+    const expenses = summary.totalMonthlyExpenses;
     const monthlyBudget = profile.monthlyBudget;
-    const weeklyBudget = monthlyBudget / 4.33; // average weeks per month
-
     return {
       mode,
       period: "monthly",
@@ -343,11 +255,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       remaining: Math.max(0, monthlyBudget - expenses),
       percentageUsed: monthlyBudget > 0 ? Math.round((expenses / monthlyBudget) * 100) : 0,
     };
-  }, [transactions, profile, mode]);
+  }, [summary.totalMonthlyExpenses, profile.monthlyBudget, mode]);
 
   // === Category breakdown for charts ===
   const categoryBreakdown: CategoryBreakdown[] = useMemo(() => {
-    const expenseTransactions = transactions.filter((t) => t.type === "expense");
+    const expenseTransactions = monthTransactions.filter((t) => t.type === "expense");
     const totalExpenses = expenseTransactions.reduce((sum, t) => sum + t.amount, 0);
 
     const categoryMap = new Map<string, number>();
@@ -363,12 +275,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         percentage: totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0,
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [transactions]);
+  }, [monthTransactions]);
 
   // === Income vs Expense data for charts ===
   const incomeExpenseData: IncomeExpenseData[] = useMemo(() => {
-    // Group by date
-    const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
+    const sorted = [...monthTransactions].sort((a, b) => a.date.localeCompare(b.date));
     const map = new Map<string, { income: number; expenses: number }>();
 
     for (const t of sorted) {
@@ -384,31 +295,55 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       income: Math.round(vals.income * 100) / 100,
       expenses: Math.round(vals.expenses * 100) / 100,
     }));
-  }, [transactions]);
+  }, [monthTransactions]);
 
-  // === Notifications ===
-  const unreadCount = notifList.filter((n) => !n.read).length;
+  // === Notifications (derived from the data) ===
+  const notifications: AppNotification[] = useMemo(() => {
+    const list: Omit<AppNotification, "read">[] = [];
+    for (const c of commitments) {
+      if (c.status === "paid") continue;
+      const days = daysUntil(c.dueDate);
+      if (c.status === "overdue" || days < 0) {
+        list.push({
+          id: `overdue-${c.id}`,
+          title: "Overdue Payment",
+          message: `${c.name} (RM${c.amount.toFixed(2)}) is overdue.`,
+          type: "warning",
+          timestamp: c.dueDate,
+        });
+      } else if (days <= 3) {
+        list.push({
+          id: `due-${c.id}`,
+          title: "Payment Due Soon",
+          message: `${c.name} (RM${c.amount.toFixed(2)}) is due ${days === 0 ? "today" : `in ${days} day${days === 1 ? "" : "s"}`}.`,
+          type: "info",
+          timestamp: c.dueDate,
+        });
+      }
+    }
+    const uncategorised = transactions.filter((t) => t.category === "Uncategorised").length;
+    if (uncategorised > 0) {
+      list.push({
+        id: "uncategorised",
+        title: "Uncategorised Transactions",
+        message: `${uncategorised} transaction${uncategorised === 1 ? "" : "s"} need a category.`,
+        type: "info",
+        timestamp: todayISO(),
+      });
+    }
+    return list.map((n) => ({ ...n, read: readIds.has(n.id) }));
+  }, [commitments, transactions, readIds]);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const markNotificationRead = useCallback((id: string) => {
-    setNotifList((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+    setReadIds((prev) => new Set(prev).add(id));
   }, []);
 
-  // === Reset data ===
   const resetData = useCallback(() => {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-    const indData = getInitialData("individual");
-    const bizData = getInitialData("business");
-    setIndividualTransactions(indData.transactions);
-    setBusinessTransactions(bizData.transactions);
-    setIndividualCommitments(indData.commitments);
-    setBusinessCommitments(bizData.commitments);
-    setMode("individual");
-    setNotifList(NOTIFICATIONS);
-  }, []);
+    setReadIds(new Set());
+    reloadAll();
+  }, [reloadAll]);
 
   const value: FinanceContextValue = {
     mode,
@@ -426,20 +361,33 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     budget,
     categoryBreakdown,
     incomeExpenseData,
-    notifications: notifList,
+    notifications,
     unreadCount,
     markNotificationRead,
     resetData,
   };
 
-  if (!mounted) {
+  if (!current) {
     return (
       <FinanceContext.Provider value={value}>
-        <div className="flex h-screen items-center justify-center bg-slate-50">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-navy-200 border-t-navy-800" />
-            <p className="text-sm text-slate-500">Loading FinanceBro AI...</p>
-          </div>
+        <div className="flex h-screen items-center justify-center bg-canvas px-6">
+          {error ? (
+            <div className="flex max-w-md flex-col items-center gap-3 text-center">
+              <p className="text-headline text-label">Couldn&apos;t load your data</p>
+              <p className="text-subhead text-label-2">{error}</p>
+              <button
+                onClick={reloadAll}
+                className="press mt-1 h-9 rounded-full bg-accent px-4 text-subhead font-semibold text-white"
+              >
+                Try again
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-6 w-6 animate-spin rounded-full border-[2.5px] border-gray/20 border-t-label-2" />
+              <p className="text-subhead text-label-2">Loading</p>
+            </div>
+          )}
         </div>
       </FinanceContext.Provider>
     );
@@ -455,6 +403,7 @@ function getCatColor(category: string): string {
     Shopping: "#a855f7",
     Education: "#f59e0b",
     Entertainment: "#ec4899",
+    Subscriptions: "#8b5cf6",
     Rent: "#ef4444",
     Internet: "#6366f1",
     Utilities: "#14b8a6",
@@ -463,14 +412,19 @@ function getCatColor(category: string): string {
     Salary: "#059669",
     "Part-time income": "#22c55e",
     "Sales Revenue": "#0ea5e9",
+    "Delivery Sales": "#38bdf8",
     "Service Income": "#06b6d4",
     "Other Business Income": "#6366f1",
+    Ingredients: "#0d9488",
+    Packaging: "#f59e0b",
+    Wages: "#3b82f6",
     Supplies: "#f59e0b",
     "Operating Expenses": "#ef4444",
     Marketing: "#a855f7",
     "Business Rent": "#dc2626",
     "Supplier Payments": "#f97316",
     "Other Business Bills": "#64748b",
+    Uncategorised: "#94a3b8",
   };
   return colors[category] || "#64748b";
 }

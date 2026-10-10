@@ -16,7 +16,6 @@ export function TopNav() {
   const { mode, setMode, profile, notifications, unreadCount, markNotificationRead, resetData } = useFinance();
   const [showNotifs, setShowNotifs] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   // The page's large title scrolls away; the compact title fades into the bar.
@@ -28,10 +27,7 @@ export function TopNav() {
   }, [pathname]);
 
   const closeNotifs = useCallback(() => setShowNotifs(false), []);
-  const closeProfile = useCallback(() => {
-    setShowProfile(false);
-    setConfirmReset(false);
-  }, []);
+  const closeProfile = useCallback(() => setShowProfile(false), []);
 
   const title = pageTitles[pathname] || "Dashboard";
   const initial = profile.displayName.charAt(0);
@@ -145,36 +141,16 @@ export function TopNav() {
               ))}
             </dl>
             <div className="p-3">
-              {confirmReset ? (
-                <div className="rounded-xl bg-negative/10 p-3">
-                  <p className="text-subhead text-label">Reset all demo data? Your changes will be lost.</p>
-                  <div className="mt-2.5 flex gap-2">
-                    <button
-                      onClick={() => setConfirmReset(false)}
-                      className="press h-8 flex-1 rounded-lg bg-gray/16 text-subhead font-semibold"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => {
-                        resetData();
-                        closeProfile();
-                      }}
-                      className="press h-8 flex-1 rounded-lg bg-negative text-subhead font-semibold text-white"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setConfirmReset(true)}
-                  className="row-press flex h-9 w-full items-center gap-2 rounded-lg px-3 text-subhead font-medium text-negative"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  Reset demo data
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  resetData();
+                  closeProfile();
+                }}
+                className="row-press flex h-9 w-full items-center gap-2 rounded-lg px-3 text-subhead font-medium text-accent-text"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reload data
+              </button>
               <p className="px-3 pt-2 text-caption text-label-3">Demo account. No sign-in needed.</p>
             </div>
           </Popover>

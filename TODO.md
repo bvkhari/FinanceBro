@@ -144,9 +144,10 @@ Keputusan reka bentuk:
   - [ ] Tambah instalment / sambung jadual bila ada baki belum dijadualkan (guna `planScheduleExtension`)
   - [ ] Jadual semula baki (tukar frequency dan amaun) tanpa sentuh sejarah bayaran
   - [ ] Semua perubahan melalui function SQL, dengan integration test
-- [ ] **11. In-app reminder** untuk bayaran yang dah dekat *(separuh: notifikasi overdue dan due dalam 3 hari dah ada untuk `commitments`)*
-  - [ ] Notifikasi untuk instalment hutang overdue dan due dalam 3 hari
-  - [ ] Label jelas "in-app" sahaja (tiada notifikasi luar yang dihantar)
+- [x] **11. In-app reminder** untuk bayaran yang dah dekat
+  - [x] Notifikasi untuk instalment hutang overdue dan due dalam 3 hari
+  - [x] Label jelas "in-app" sahaja (tiada notifikasi luar yang dihantar)
+  - Diuji dalam browser (10 Okt): Personal 3 peringatan (sewa esok, SPayLater 12 Okt, CelcomDigi 13 Okt; headphones 14 Okt tak masuk sebab 4 hari). Business: Unifi "overdue by 3 days", Kopi Bumi dan Farm Fresh (Supplier invoice)
 
 ## Fasa 4: Bonus
 

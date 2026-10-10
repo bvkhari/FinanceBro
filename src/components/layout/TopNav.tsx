@@ -83,6 +83,7 @@ export function TopNav() {
               <h3 className="text-headline">Notifications</h3>
               {unreadCount > 0 && <span className="text-footnote text-label-2">{unreadCount} unread</span>}
             </div>
+            <p className="px-4 pb-2 text-footnote text-label-3">In-app reminders only. Nothing is sent by email, SMS or push.</p>
             <div className="grouped-inset max-h-80 overflow-y-auto pb-1" style={{ ["--inset" as string]: "2.25rem" }}>
               {notifications.length === 0 ? (
                 <p className="px-4 py-8 text-center text-subhead text-label-2">You're all caught up.</p>

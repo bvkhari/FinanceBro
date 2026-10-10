@@ -39,9 +39,9 @@ import {
   PaymentResult,
 } from "./db";
 import type { ScheduledInstalment } from "./debt/schedule";
-import { buildPayments } from "./debt/payments";
+import { buildPayments, countdown, daysBetween } from "./debt/payments";
 import { CashFlow, cashFlow, isSpending, netCash } from "./cashflow";
-import { daysUntil, todayISO } from "./utils";
+import { todayISO, formatRM, formatDateShort } from "./utils";
 
 // ============================================================
 // FINANCE CONTEXT — Centralized state management
@@ -408,27 +408,20 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   // === Notifications (derived from the data) ===
   const notifications: AppNotification[] = useMemo(() => {
+    // In-app reminders for debt instalments and bills: overdue, or due within 3 days.
     const list: Omit<AppNotification, "read">[] = [];
-    for (const c of commitments) {
-      if (c.status === "paid") continue;
-      const days = daysUntil(c.dueDate);
-      if (c.status === "overdue" || days < 0) {
-        list.push({
-          id: `overdue-${c.id}`,
-          title: "Overdue Payment",
-          message: `${c.name} (RM${c.amount.toFixed(2)}) is overdue.`,
-          type: "warning",
-          timestamp: c.dueDate,
-        });
-      } else if (days <= 3) {
-        list.push({
-          id: `due-${c.id}`,
-          title: "Payment Due Soon",
-          message: `${c.name} (RM${c.amount.toFixed(2)}) is due ${days === 0 ? "today" : `in ${days} day${days === 1 ? "" : "s"}`}.`,
-          type: "info",
-          timestamp: c.dueDate,
-        });
-      }
+    for (const p of payments) {
+      if (p.remaining <= 0) continue;
+      const days = daysBetween(today, p.dueDate);
+      if (p.status !== "overdue" && days > 3) continue;
+      const overdue = p.status === "overdue";
+      list.push({
+        id: `${overdue ? "overdue" : "due"}-${p.key}`,
+        title: overdue ? "Overdue payment" : "Payment due soon",
+        message: `${p.payee}: ${formatRM(p.remaining)}${p.kind === "debt" ? ` (${p.category})` : ""}, ${countdown(p.dueDate, today, p.status).toLowerCase()} (${formatDateShort(p.dueDate)}).`,
+        type: overdue ? "warning" : "info",
+        timestamp: p.dueDate,
+      });
     }
     const uncategorised = transactions.filter((t) => t.category === "Uncategorised").length;
     if (uncategorised > 0) {
@@ -441,7 +434,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       });
     }
     return list.map((n) => ({ ...n, read: readIds.has(n.id) }));
-  }, [commitments, transactions, readIds]);
+  }, [payments, today, transactions, readIds]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 

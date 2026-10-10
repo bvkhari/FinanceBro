@@ -54,7 +54,8 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
     return Number(data!.current_balance);
   }
 
-  const pay = (instalmentId: string, amount: number, idempotencyKey = randomUUID(), interest = 0, date = "2026-10-15") =>
+  // Payment dates must not be in the future, so the default is a fixed past date.
+  const pay = (instalmentId: string, amount: number, idempotencyKey = randomUUID(), interest = 0, date = "2026-10-01") =>
     db.rpc("record_debt_payment", {
       p_instalment_id: instalmentId,
       p_amount: amount,
@@ -78,7 +79,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
     expect(r1.error).toBeNull();
     expect(r1.data).toMatchObject({ duplicate: false, outstanding_balance: 200, instalment_remaining: 0 });
     expect((await debt(id)).outstanding_balance).toBe(200);
-    expect((await instalments(id))[0]).toMatchObject({ status: "paid", amount_paid: 100, paid_date: "2026-10-15" });
+    expect((await instalments(id))[0]).toMatchObject({ status: "paid", amount_paid: 100, paid_date: "2026-10-01" });
     expect(await balance()).toBe(startBalance - 100);
 
     // Partial payment of November: RM40, then RM60
@@ -194,6 +195,29 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
       ["2026-11-01", 100, "scheduled"],
       ["2026-12-01", 100, "scheduled"],
     ]);
+  });
+
+  it("cancels unpaid instalments once the balance reaches zero", async () => {
+    // Schedule (RM200) is larger than what is owed (RM100), e.g. a debt partly settled elsewhere
+    const id = await createDebt(
+      { name: "Over-scheduled", debt_type: "other_personal", original_amount: 200, outstanding_balance: 100, frequency: "irregular" },
+      [{ due_date: "2026-10-20", amount: 100 }, { due_date: "2026-11-20", amount: 100 }]
+    );
+    const [first] = await instalments(id);
+    expect((await pay(first.id, 100)).error).toBeNull();
+    expect((await debt(id)).status).toBe("paid_off");
+    expect((await instalments(id)).map((i) => i.status)).toEqual(["paid", "cancelled"]);
+  });
+
+  it("refuses payment dates in the future", async () => {
+    const id = await createDebt(
+      { name: "Future date", debt_type: "other_personal", original_amount: 50, frequency: "one_time" },
+      [{ due_date: "2026-10-20", amount: 50 }]
+    );
+    const [inst] = await instalments(id);
+    const r = await pay(inst.id, 50, randomUUID(), 0, "2099-01-01");
+    expect(r.error?.message).toMatch(/in the future/);
+    expect((await debt(id)).outstanding_balance).toBe(50);
   });
 
   it("keeps personal and business debt types on the right profile", async () => {

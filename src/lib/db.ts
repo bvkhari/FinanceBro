@@ -211,6 +211,10 @@ function mapDebt(r: DebtRow, mode: AppMode, today: string): Debt {
     createdAt: r.created_at,
     instalments,
     nextInstalment: instalments.find((i) => i.remaining > 0),
+    unscheduledBalance:
+      r.status === "active"
+        ? Math.max(0, cents(Number(r.outstanding_balance)) - instalments.reduce((s, i) => s + cents(i.remaining), 0)) / 100
+        : 0,
   };
 }
 

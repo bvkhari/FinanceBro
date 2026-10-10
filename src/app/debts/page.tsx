@@ -215,6 +215,12 @@ function DebtCard({
               Edit details
             </Button>
           </div>
+          {debt.unscheduledBalance > 0 && (
+            <p className="mb-3 flex items-start gap-1.5 rounded-xl bg-warning/12 px-3 py-2 text-footnote text-label">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-warning" />
+              {formatRM(debt.unscheduledBalance)} of the outstanding balance has no scheduled payment yet.
+            </p>
+          )}
           {debt.notes && <p className="mb-3 rounded-xl bg-gray/12 px-3 py-2 text-footnote text-label-2">{debt.notes}</p>}
 
           <div className="overflow-x-auto">
@@ -316,6 +322,7 @@ function PaymentModal({
     }
     if (isNaN(int) || int < 0 || int > amt) return setError("Interest and fees must be between RM0 and the amount paid.");
     if (!paidDate) return setError("Enter the date you paid.");
+    if (paidDate > todayISO()) return setError("The payment date can't be in the future. Only record payments you've already made.");
 
     setSaving(true);
     try {
@@ -346,7 +353,7 @@ function PaymentModal({
         </div>
 
         <Input label="Amount paid (RM)" type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <Input label="Date paid" type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
+        <Input label="Date paid" type="date" max={todayISO()} value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
         <Input
           label="Of which interest and fees (RM, optional)"
           type="number"
@@ -680,7 +687,7 @@ function EditDebtModal({ debt, onClose }: { debt: Debt | null; onClose: () => vo
       await updateDebt(debt.id, {
         name: name.trim(),
         debtType,
-        interestRate: rate,
+        interestRate: rate ?? null,
         startDate,
         endDate,
         referenceNo: referenceNo.trim(),

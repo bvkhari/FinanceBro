@@ -211,6 +211,8 @@ export interface Debt {
   createdAt: string;
   instalments: DebtInstalment[]; // sorted by due date
   nextInstalment?: DebtInstalment; // earliest unpaid, not cancelled
+  /** Part of the outstanding balance with no unpaid instalment covering it (0 when fully scheduled). */
+  unscheduledBalance: number;
 }
 
 /** Fields the user enters when adding a debt (the schedule is passed separately). */
@@ -228,6 +230,6 @@ export interface NewDebtInput {
   notes?: string;
 }
 
-/** Details that can be edited without touching amounts or the schedule. */
+/** Details that can be edited without touching amounts or the schedule. `null` clears the interest rate. */
 export type DebtDetailsUpdate = Partial<Pick<NewDebtInput,
-  "name" | "debtType" | "interestRate" | "startDate" | "endDate" | "referenceNo" | "notes">>;
+  "name" | "debtType" | "startDate" | "endDate" | "referenceNo" | "notes">> & { interestRate?: number | null };

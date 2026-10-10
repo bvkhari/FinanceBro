@@ -56,24 +56,46 @@ Nota dari test Fasa 1:
 - Kad Debt dalam dashboard masih guna `commitments`, jadi BNPL, loan dan invois dah tak keluar situ sampai step 5–6 siap
 - Jadual guna amaun tetap (tanpa pengiraan faedah). Kalau ada faedah, user masukkan bahagian faedah masa rekod bayaran. Pengiraan faedah ikut kadar sebenar ada dalam step 12
 
-## Fasa 2: UI hutang
+## Fasa 1.1: Pembetulan Fasa 1 ✅ *siap 2026-10-10*
 
-- [ ] **5. Upcoming Payments** *(separuh: ada senarai bayaran akan datang dari `commitments` dalam workspace Debt)*
-  - [ ] Kepada siapa, RM, tarikh tepat, countdown ("Due today", "Due tomorrow", "Due in 2 days"), kategori, frequency, status (upcoming/paid/overdue/cancelled)
+- [x] **Bug 1:** hutang `paid_off` masih ada instalment `scheduled` → batalkan instalment yang belum dibayar bila baki jadi RM0, dan betulkan data sedia ada
+- [x] **Bug 2:** tarikh bayaran masa depan diterima → tolak tarikh selepas hari ni (waktu Malaysia)
+- [x] **Bug 3:** kadar faedah tak boleh dikosongkan dalam Edit details
+- [x] **Amaran 4:** hutang aktif yang bakinya tak cukup dijadualkan → tunjuk "RMx belum dijadualkan"
+- [x] Test baru untuk bug 1 dan 2
+- Disahkan: probe database (rollback) untuk bug 1–2, browser untuk bug 3 dan amaran 4. 23 test lulus
+
+## Fasa 2: UI hutang 🔄 *sedang dibuat*
+
+Keputusan reka bentuk:
+- Senarai bayaran gabungkan **instalment hutang** dan **bil** (`commitments`), sebab soalan user ialah "siapa aku kena bayar", bukan "hutang mana"
+- Semua kiraan (countdown, filter, jumlah) dalam function TS tulen di `src/lib/debt/payments.ts` dengan unit test. Page cuma paparkan
+- Countdown dikira dari tarikh due yang disimpan, ikut tarikh (bukan jam), jadi "Due tomorrow" tak berubah ikut masa
+- "Available cash selepas commitments" = baki semasa − bayaran yang belum dibayar sampai hujung bulan ni (instalment + bil, termasuk overdue). Andaian ni ditulis dalam UI. Formula penuh cash flow dalam step 9
+- Scope Personal / Business / Combined: satu kawalan dalam Dashboard Debt dan page Debts. Combined tunjuk rekod dua-dua profile dengan label, tapi rekod tetap berasingan
+
+- [ ] **5. Upcoming Payments** (tab "Payments" dalam page `/debts`) *(separuh: ada senarai bayaran akan datang dari `commitments` dalam workspace Debt)*
+  - [ ] Kepada siapa, RM, tarikh tepat, countdown ("Due today", "Due tomorrow", "Due in 2 days", "Overdue by 3 days"), kategori, frequency, status (upcoming/partly paid/paid/overdue/cancelled)
   - [ ] Susun ikut tarikh due terdekat
   - [ ] Filter: semua, hari ni, 7 hari, bulan ni, overdue, paid
-  - [ ] Jumlah untuk tempoh dipilih (tidak kira paid dan cancelled)
-- [ ] **6. Debt Dashboard** *(separuh: ada kad Upcoming Commitments, Overdue dan Projected Remaining)*
+  - [ ] Jumlah untuk tempoh dipilih (tidak kira paid dan cancelled; partial kira baki sahaja)
+  - [ ] Butang Record payment (hutang) dan Mark paid (bil) terus dari senarai
+  - [ ] Unit test untuk countdown, filter dan jumlah
+- [ ] **6. Debt Dashboard** (workspace Debt dalam dashboard) *(separuh: ada kad Upcoming Commitments, Overdue dan Projected Remaining)*
   - [ ] Total outstanding debt
   - [ ] Due bulan ni
   - [ ] Due 7 hari akan datang
   - [ ] Total overdue
   - [ ] Bilangan hutang aktif
   - [ ] Next payment
-  - [ ] Available cash selepas commitments
+  - [ ] Available cash selepas commitments (dengan andaian ditulis)
   - [ ] Beza yang jelas antara outstanding debt dan repayment due
-- [ ] **7. Paparan jadual bayaran setiap hutang** (tarikh due, tarikh bayar, amaun, status)
+  - [ ] Senarai "Up next" guna data hutang dan bil
+  - [ ] Unit test untuk semua jumlah
+- [ ] **7. Paparan jadual bayaran setiap hutang** (tarikh due, tarikh bayar, amaun, status) *(separuh: jadual dah ada dalam page `/debts` dari Fasa 1)*
 - [ ] **8. Switch Personal / Business / Combined** *(separuh: switch Individual/Business dah ada, view Combined belum)*
+  - [ ] Combined: jumlah merentas dua profile, setiap rekod ada label Personal/Business
+  - [ ] Rekod bayaran dalam view Combined kemas kini profile yang betul
 
 ## Fasa 3: Logik duit
 

@@ -324,6 +324,8 @@ function DebtWorkspace() {
   const overdue = totalDue(due30.filter((p) => p.status === "overdue"));
   const due7 = totalDue(dueWithin(payments, 7, today));
   const debtDue30 = totalDue(due30.filter((p) => p.kind === "debt"));
+  // Bills are due but aren't debt, so the 30-day total can exceed the outstanding debt: show the split.
+  const billDue30 = Math.round((totalDue(due30) - debtDue30) * 100) / 100;
   const debtSharePct = o.totalOutstanding > 0 ? Math.min(100, (debtDue30 / o.totalOutstanding) * 100) : 0;
   const monthEnd = formatDateShort(o.monthEnd);
   const sheetItems = sheet ? dueWithin(payments, sheet, today) : [];
@@ -341,7 +343,9 @@ function DebtWorkspace() {
               <p className="mt-1 truncate text-subhead text-label-2">
                 {due30.length === 0
                   ? "Nothing due. Nice."
-                  : `${due30.length} payment${due30.length === 1 ? "" : "s"} · ${groups30.length} creditor${groups30.length === 1 ? "" : "s"}`}
+                  : billDue30 === 0
+                    ? `${due30.length} debt payment${due30.length === 1 ? "" : "s"} · ${groups30.length} creditor${groups30.length === 1 ? "" : "s"}`
+                    : `Debts ${formatRM(debtDue30)} + bills ${formatRM(billDue30)}`}
               </p>
             </div>
             <ChevronRight className="mb-1 h-5 w-5 shrink-0 text-label-3 transition-transform duration-300 ease-spring group-hover:translate-x-0.5" />

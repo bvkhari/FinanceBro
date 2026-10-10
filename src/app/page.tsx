@@ -9,14 +9,9 @@ import {
   Wallet,
   TrendingUp,
   TrendingDown,
-  CalendarClock,
   ChevronRight,
-  AlertTriangle,
   Sparkles,
   ArrowUpRight,
-  ArrowRight,
-  Clock,
-  Landmark,
 } from "lucide-react";
 import { useDebtView } from "@/lib/debt/useDebtView";
 import type { CashFlow } from "@/lib/cashflow";
@@ -307,89 +302,89 @@ function CashFlowCard({ f }: { f: CashFlow }) {
 // Debt dashboard: what is owed vs what is due, and who to pay next
 // ------------------------------------------------------------
 
-const BREAKDOWN_TITLES: Record<DebtBreakdownKind, string> = {
-  next7: "Due in 7 days",
-  month: "Due this month",
-  overdue: "Overdue",
-  outstanding: "Outstanding debt",
-};
+const TOTALS: { kind: DebtBreakdownKind; label: string }[] = [
+  { kind: "next7", label: "Next 7 days" },
+  { kind: "month", label: "This month" },
+  { kind: "overdue", label: "Overdue" },
+  { kind: "outstanding", label: "Total owed" },
+];
 
 function DebtWorkspace() {
   const { today, debts, payments, overview: o } = useDebtView();
   const [open, setOpen] = useState<DebtBreakdownKind | null>(null);
   const upNext = payments.filter((p) => p.remaining > 0).slice(0, 5);
-  const month = new Date(`${today}T00:00:00`).toLocaleDateString("en-MY", { month: "long" });
   const monthEnd = formatDateShort(o.monthEnd);
   const next = o.nextPayment;
   const breakdown = open ? debtBreakdown(debts, payments, open, today) : [];
-
-  // Tapping a total shows it split by creditor; tapping it again hides it.
-  const Total = ({ kind, children }: { kind: DebtBreakdownKind; children: React.ReactNode }) => (
-    <button
-      type="button"
-      aria-expanded={open === kind}
-      aria-controls="debt-breakdown"
-      onClick={() => setOpen(open === kind ? null : kind)}
-      className={`press rounded-2xl text-left transition-shadow [&>div]:h-full ${open === kind ? "ring-2 ring-accent" : ""}`}
-    >
-      {children}
-    </button>
-  );
+  const value: Record<DebtBreakdownKind, number> = {
+    next7: o.dueNext7Days,
+    month: o.dueThisMonth,
+    overdue: o.overdue,
+    outstanding: o.totalOutstanding,
+  };
 
   return (
     <div key="debt" className="animate-rise space-y-8">
-      <div className="space-y-3">
-        <Link href="/debts" className="press block rounded-2xl">
-          <StatCard
-            label="Next payment"
-            value={next ? next.remaining : 0}
-            icon={ArrowRight}
-            variant="accent"
-            subtitle={next ? `${next.payee} · ${formatDateShort(next.dueDate)} · ${countdown(next.dueDate, today, next.status)}` : "Nothing scheduled"}
-          />
+      {/* One hero number, then the totals as a quiet strip. Tap a total to split it by creditor. */}
+      <section className="overflow-hidden rounded-2xl bg-surface shadow-card">
+        <Link href="/debts" className="press group flex items-end justify-between gap-4 p-5">
+          <div className="min-w-0">
+            <p className="text-subhead text-label-2">Next payment</p>
+            <p className="tabular mt-1 text-large-title text-label">{formatRM(next ? next.remaining : 0)}</p>
+            <p className="mt-1 truncate text-subhead text-label-2">
+              {next ? (
+                <>
+                  {next.payee} · {formatDateShort(next.dueDate)} ·{" "}
+                  <span className="font-medium text-warning">{countdown(next.dueDate, today, next.status)}</span>
+                </>
+              ) : (
+                "Nothing scheduled"
+              )}
+            </p>
+          </div>
+          <ChevronRight className="mb-1 h-5 w-5 shrink-0 text-label-3 transition-transform duration-300 ease-spring group-hover:translate-x-0.5" />
         </Link>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Total kind="next7">
-            <StatCard label="Due in 7 days" value={o.dueNext7Days} icon={Clock} variant="warning" subtitle="Today to a week from now" />
-          </Total>
-          <Total kind="month">
-            <StatCard label="Due this month" value={o.dueThisMonth} icon={CalendarClock} variant="warning" subtitle={`Repayments in ${month}`} />
-          </Total>
-          <Total kind="overdue">
-            <StatCard label="Overdue" value={o.overdue} icon={AlertTriangle} variant="expense" subtitle="Repayments past due" />
-          </Total>
-          <Total kind="outstanding">
-            <StatCard label="Outstanding debt" value={o.totalOutstanding} icon={Landmark} variant="navy" subtitle="Total still owed" />
-          </Total>
+        <div className="grid grid-cols-2 shadow-[inset_0_0.5px_0_var(--separator)] sm:grid-cols-4" role="group" aria-label="Debt totals">
+          {TOTALS.map((t) => {
+            const active = open === t.kind;
+            const alert = t.kind === "overdue" && value[t.kind] > 0;
+            return (
+              <button
+                key={t.kind}
+                type="button"
+                aria-expanded={active}
+                aria-controls="debt-breakdown"
+                onClick={() => setOpen(active ? null : t.kind)}
+                className={`press px-5 py-3.5 text-left transition-colors duration-200 ${active ? "bg-gray/12" : "hover:bg-gray/8"}`}
+              >
+                <p className="text-footnote text-label-2">{t.label}</p>
+                <p className={`tabular mt-0.5 text-headline ${alert ? "text-negative" : "text-label"}`}>{formatRM(value[t.kind])}</p>
+              </button>
+            );
+          })}
         </div>
 
-        {open ? (
-          <div id="debt-breakdown" className="animate-rise rounded-2xl bg-surface p-4 shadow-card">
-            <p className="text-subhead font-medium text-label-2">{BREAKDOWN_TITLES[open]} by creditor</p>
+        {open && (
+          <div id="debt-breakdown" className="animate-rise px-5 pb-4 pt-3 shadow-[inset_0_0.5px_0_var(--separator)]">
             {breakdown.length === 0 ? (
-              <p className="mt-2 text-subhead text-label-2">Nothing here. Nice.</p>
+              <p className="text-subhead text-label-2">Nothing here.</p>
             ) : (
-              <ul className="mt-3 flex flex-wrap gap-2">
+              <ul className="flex flex-wrap gap-2">
                 {breakdown.map((b) => (
-                  <li key={b.name} className="flex items-baseline gap-1.5 rounded-full bg-gray/12 px-3.5 py-1.5 text-subhead">
-                    <span className="text-label">{b.name}:</span>
+                  <li key={b.name} className="flex items-baseline gap-1.5 rounded-full bg-gray/12 px-3 py-1 text-subhead">
+                    <span className="text-label-2">{b.name}</span>
                     <span className="tabular font-semibold text-label">{formatRM(b.amount)}</span>
                   </li>
                 ))}
               </ul>
             )}
           </div>
-        ) : (
-          <p className="px-1 text-footnote text-label-2">
-            <span className="font-semibold text-label">Outstanding debt</span> is everything you still owe. The other totals are only
-            the repayments scheduled for that period. Tap a total to see it by creditor.
-          </p>
         )}
-      </div>
+      </section>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-4">
-        <Card title="Who to pay next" flush action={<SeeAll href="/debts" />}>
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:items-start lg:gap-4">
+        <Card title="Who to pay next" flush className="lg:col-span-3" action={<SeeAll href="/debts" />}>
           {upNext.length === 0 ? (
             <p className="py-10 text-center text-subhead text-label-2">Nothing to pay. Nice.</p>
           ) : (
@@ -397,35 +392,29 @@ function DebtWorkspace() {
           )}
         </Card>
 
-        <Card title="Available cash" flush>
+        <Card title={`By ${monthEnd}`} flush className="lg:col-span-2">
           <dl className="grouped px-4">
             <div className="flex justify-between py-3">
               <dt className="text-body text-label-2">Balance</dt>
               <dd className="tabular text-body">{formatRM(o.balance)}</dd>
             </div>
             <div className="flex justify-between py-3">
-              <dt className="text-body text-label-2">Debt repayments due by {monthEnd}</dt>
-              <dd className="tabular text-body text-negative">−{formatRM(o.debtDueByMonthEnd)}</dd>
+              <dt className="text-body text-label-2">Repayments due</dt>
+              <dd className="tabular text-body">−{formatRM(o.debtDueByMonthEnd)}</dd>
             </div>
             <div className="flex justify-between py-3">
-              <dt className="text-body text-label-2">Bills due by {monthEnd}</dt>
-              <dd className="tabular text-body text-negative">−{formatRM(o.billsDueByMonthEnd)}</dd>
+              <dt className="text-body text-label-2">Bills due</dt>
+              <dd className="tabular text-body">−{formatRM(o.billsDueByMonthEnd)}</dd>
             </div>
             <div className="flex items-baseline justify-between py-3.5">
-              <dt className="text-headline">Left after these</dt>
+              <dt className="text-headline">Left over</dt>
               <dd className={`tabular text-title2 ${o.availableAfterCommitments < 0 ? "text-negative" : "text-label"}`}>
                 {formatRM(o.availableAfterCommitments)}
               </dd>
             </div>
           </dl>
-          <p className="px-4 pb-3 text-footnote text-label-2">
-            Only payments due by {monthEnd} are subtracted (overdue ones included), not the whole outstanding debt of{" "}
-            {formatRM(o.totalOutstanding)}. Income you expect to receive isn&apos;t added.
-          </p>
         </Card>
       </div>
-
-      <AskCard />
     </div>
   );
 }

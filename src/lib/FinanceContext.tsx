@@ -47,6 +47,7 @@ import type { ScheduledInstalment } from "./debt/schedule";
 import { buildPayments, countdown, daysBetween } from "./debt/payments";
 import { CashFlow, cashFlow, isSpending, netCash } from "./cashflow";
 import { todayISO, formatRM, formatDateShort } from "./utils";
+import { categoryColor } from "./categories";
 
 // ============================================================
 // FINANCE CONTEXT — Centralized state management
@@ -371,7 +372,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       .map(([category, amount]) => ({
         category,
         amount,
-        color: getCatColor(category),
+        color: categoryColor(category),
         percentage: totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0,
       }))
       .sort((a, b) => b.amount - a.amount);
@@ -499,39 +500,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   }
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
-}
-
-function getCatColor(category: string): string {
-  const colors: Record<string, string> = {
-    Food: "#0d9488",
-    Transportation: "#3b82f6",
-    Shopping: "#a855f7",
-    Education: "#f59e0b",
-    Entertainment: "#ec4899",
-    Subscriptions: "#8b5cf6",
-    Rent: "#ef4444",
-    Internet: "#6366f1",
-    Utilities: "#14b8a6",
-    Instalments: "#f97316",
-    Allowance: "#10b981",
-    Salary: "#059669",
-    "Part-time income": "#22c55e",
-    "Sales Revenue": "#0ea5e9",
-    "Delivery Sales": "#38bdf8",
-    "Service Income": "#06b6d4",
-    "Other Business Income": "#6366f1",
-    Ingredients: "#0d9488",
-    Packaging: "#f59e0b",
-    Wages: "#3b82f6",
-    Supplies: "#f59e0b",
-    "Operating Expenses": "#ef4444",
-    Marketing: "#a855f7",
-    "Business Rent": "#dc2626",
-    "Supplier Payments": "#f97316",
-    "Other Business Bills": "#64748b",
-    Uncategorised: "#94a3b8",
-  };
-  return colors[category] || "#64748b";
 }
 
 export function useFinance() {

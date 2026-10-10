@@ -23,6 +23,10 @@
   --warning: 255 149 0;
   --info: 0 122 255;
 
+  /* Ink: the dark "bank card" surface. Stays dark in both themes. */
+  --ink: 22 22 24;
+  --ink-hi: 52 52 56;
+
   --material: rgba(249, 249, 251, 0.72);
   --material-edge: rgba(255, 255, 255, 0.6);
   --scrim: rgba(0, 0, 0, 0.32);
@@ -69,6 +73,9 @@
     --negative: 255 69 58;
     --warning: 255 159 10;
     --info: 10 132 255;
+
+    --ink: 36 36 38;
+    --ink-hi: 72 72 76;
 
     --material: rgba(28, 28, 30, 0.72);
     --material-edge: rgba(255, 255, 255, 0.08);
@@ -123,6 +130,15 @@ body {
 }
 .material-edge-t {
   box-shadow: inset 0 0.5px 0 var(--separator);
+}
+
+/* Ink card: a soft sheen across a dark surface, with a hairline rim */
+.ink-card {
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgb(var(--ink-hi) / 0.9), transparent 60%),
+    rgb(var(--ink));
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 10px 30px -12px rgba(0, 0, 0, 0.45);
+  color: #fff;
 }
 
 /* ------------------------------------------------------------

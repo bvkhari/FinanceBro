@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useFinance } from "@/lib/FinanceContext";
 import { NewTransaction, Transaction, TransactionType } from "@/lib/types";
-import { TRANSACTION_CATEGORIES } from "@/lib/categories";
+import { TRANSACTION_CATEGORIES, categoryColor } from "@/lib/categories";
 import { DEBT_REPAYMENT, isSpending } from "@/lib/cashflow";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -11,6 +11,7 @@ import { Input, Select, TextArea } from "@/components/ui/Input";
 import { Segmented } from "@/components/ui/Segmented";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { formatRM, formatDateShort, todayISO } from "@/lib/utils";
+import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { Plus, Search, TrendingUp, TrendingDown, X, ChevronRight, ChevronDown, Trash2 } from "lucide-react";
 
 
@@ -31,6 +32,24 @@ export default function TransactionsPage() {
   // Debt repayments aren't spending (the purchase was already counted); purchases on credit are.
   const totalExpenses = transactions.filter(isSpending).reduce((s, t) => s + t.amount, 0);
   const net = totalIncome - totalExpenses;
+
+  // "Where it went": spending by category, biggest first; the rest folds into "N more".
+  const byCategory = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of transactions.filter(isSpending)) m.set(t.category, (m.get(t.category) || 0) + t.amount);
+    return Array.from(m, ([category, amount]) => ({ category, amount, color: categoryColor(category) })).sort(
+      (a, b) => b.amount - a.amount
+    );
+  }, [transactions]);
+
+  // The dashboard's "Add" tile links here with ?new=1.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("new") === "1") {
+      setEditingId(null);
+      setShowAddModal(true);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   const filteredTransactions = useMemo(() => {
     let result = [...transactions];
@@ -89,6 +108,48 @@ export default function TransactionsPage() {
     setShowAddModal(true);
   };
 
+  const row = (t: Transaction) => (
+        <li key={t.id}>
+          <button
+            onClick={() => {
+              setEditingId(t.id);
+              setShowAddModal(true);
+            }}
+            className="row-press flex w-full items-center gap-3 px-4 py-3 text-left"
+          >
+            <span
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                t.type === "income" ? "bg-positive/12 text-positive" : "bg-negative/12 text-negative"
+              }`}
+            >
+              {t.type === "income" ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-body text-label">{t.name}</span>
+              <span className="block truncate text-footnote text-label-2">
+                {t.category} · {formatDateShort(t.date)}
+                {!t.cashEffect && (
+                  <span className="ml-1.5 rounded-full bg-info/12 px-1.5 py-px text-caption font-medium text-info" title="Bought on credit: counts as spending, but no cash has left your account yet">
+                    On credit
+                  </span>
+                )}
+                {t.category === DEBT_REPAYMENT && (
+                  <span className="ml-1.5 rounded-full bg-gray/12 px-1.5 py-px text-caption font-medium text-label-2" title="Cash paid towards a debt. The purchase was counted as spending when it was made.">
+                    Not spending
+                  </span>
+                )}
+                {t.description ? <span className="hidden md:inline"> · {t.description}</span> : null}
+              </span>
+            </span>
+            <span className={`tabular text-body font-medium ${t.type === "income" ? "text-positive" : "text-label"}`}>
+              {t.type === "income" ? "+" : "−"}
+              {formatRM(t.amount)}
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-label-3" />
+          </button>
+        </li>
+  );
+
   return (
     <div className="mx-auto max-w-4xl px-4 pb-10 pt-2 sm:px-6 lg:px-8">
       <PageHeader
@@ -101,19 +162,16 @@ export default function TransactionsPage() {
         }
       />
 
-      {/* Totals: one grouped surface, three columns */}
-      <div className="mb-8 grid grid-cols-3 divide-x divide-[color:var(--separator)] rounded-2xl bg-surface py-4 shadow-card">
-        {[
-          { label: "Income", value: totalIncome, cls: "text-positive" },
-          { label: "Expenses", value: totalExpenses, cls: "text-label" },
+      <WhereItWent
+        className="mb-8"
+        slices={byCategory}
+        spent={totalExpenses}
+        stats={[
+          { label: "In", value: totalIncome, cls: "text-positive" },
+          { label: "Out", value: totalExpenses, cls: "text-negative" },
           { label: "Net", value: net, cls: net >= 0 ? "text-label" : "text-negative" },
-        ].map((s) => (
-          <div key={s.label} className="px-3 text-center sm:px-5 sm:text-left">
-            <p className="text-footnote text-label-2">{s.label}</p>
-            <p className={`tabular mt-1 whitespace-nowrap text-subhead font-semibold sm:text-title3 ${s.cls}`}>{formatRM(s.value)}</p>
-          </div>
-        ))}
-      </div>
+        ]}
+      />
 
       {/* Search + filters */}
       <div className="mb-3 space-y-3">
@@ -192,49 +250,18 @@ export default function TransactionsPage() {
             </Button>
           </div>
         ) : (
-          <ul className="grouped-inset" style={{ ["--inset" as string]: "3.75rem" }}>
-            {filteredTransactions.map((t) => (
-              <li key={t.id}>
-                <button
-                  onClick={() => {
-                    setEditingId(t.id);
-                    setShowAddModal(true);
-                  }}
-                  className="row-press flex w-full items-center gap-3 px-4 py-3 text-left"
-                >
-                  <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                      t.type === "income" ? "bg-positive/12 text-positive" : "bg-negative/12 text-negative"
-                    }`}
-                  >
-                    {t.type === "income" ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-body text-label">{t.name}</span>
-                    <span className="block truncate text-footnote text-label-2">
-                      {t.category} · {formatDateShort(t.date)}
-                      {!t.cashEffect && (
-                        <span className="ml-1.5 rounded-full bg-info/12 px-1.5 py-px text-caption font-medium text-info" title="Bought on credit: counts as spending, but no cash has left your account yet">
-                          On credit
-                        </span>
-                      )}
-                      {t.category === DEBT_REPAYMENT && (
-                        <span className="ml-1.5 rounded-full bg-gray/12 px-1.5 py-px text-caption font-medium text-label-2" title="Cash paid towards a debt. The purchase was counted as spending when it was made.">
-                          Not spending
-                        </span>
-                      )}
-                      {t.description ? <span className="hidden md:inline"> · {t.description}</span> : null}
-                    </span>
-                  </span>
-                  <span className={`tabular text-body font-medium ${t.type === "income" ? "text-positive" : "text-label"}`}>
-                    {t.type === "income" ? "+" : "−"}
-                    {formatRM(t.amount)}
-                  </span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-label-3" />
-                </button>
-              </li>
-            ))}
-          </ul>
+          dayGroups(filteredTransactions, sortBy).map((g) => (
+            <section key={g.label || "all"} aria-label={g.label || undefined}>
+              {g.label && (
+                <h3 className="px-4 pb-1 pt-3 text-caption font-semibold uppercase tracking-[0.08em] text-label-2 [&:not(:first-child)]:shadow-[inset_0_0.5px_0_var(--separator)]">
+                  {g.label}
+                </h3>
+              )}
+              <ul className="grouped-inset" style={{ ["--inset" as string]: "3.75rem" }}>
+                {g.items.map(row)}
+              </ul>
+            </section>
+          ))
         )}
       </div>
 
@@ -262,6 +289,89 @@ export default function TransactionsPage() {
         }}
       />
     </div>
+  );
+}
+
+/** Day headers ("MON, 5 OCT 2026") when the list is sorted by date; one unlabelled group otherwise. */
+function dayGroups(list: Transaction[], sort: Sort): { label: string; items: Transaction[] }[] {
+  if (!sort.startsWith("date")) return [{ label: "", items: list }];
+  const groups: { label: string; items: Transaction[] }[] = [];
+  for (const t of list) {
+    const label = new Date(`${t.date}T00:00:00`).toLocaleDateString("en-MY", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    const last = groups[groups.length - 1];
+    if (last?.label === label) last.items.push(t);
+    else groups.push({ label, items: [t] });
+  }
+  return groups;
+}
+
+function WhereItWent({
+  slices,
+  spent,
+  stats,
+  className = "",
+}: {
+  slices: { category: string; amount: number; color: string }[];
+  spent: number;
+  stats: { label: string; value: number; cls: string }[];
+  className?: string;
+}) {
+  const top = slices.slice(0, 3);
+  const rest = slices.slice(3);
+  const pct = (n: number) => (spent > 0 ? Math.round((n / spent) * 100) : 0);
+  return (
+    <section className={`rounded-2xl bg-surface p-4 shadow-card ${className}`} aria-label="Where it went">
+      <p className="text-subhead font-medium text-label-2">Where it went</p>
+      <div className="mt-3 flex items-center gap-5">
+        <div className="relative h-32 w-32 shrink-0">
+          {slices.length > 0 && (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={slices} dataKey="amount" nameKey="category" innerRadius="80%" outerRadius="100%" paddingAngle={1.5} stroke="none" cornerRadius={4} isAnimationActive={false}>
+                  {slices.map((s) => (
+                    <Cell key={s.category} fill={s.color} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <p className="text-caption font-semibold uppercase tracking-[0.1em] text-label-2">Spent</p>
+            <p className="tabular text-subhead font-semibold">{formatRM(spent)}</p>
+          </div>
+        </div>
+        <ul className="min-w-0 flex-1 space-y-2">
+          {slices.length === 0 && <li className="text-subhead text-label-2">No spending yet.</li>}
+          {top.map((s) => (
+            <li key={s.category} className="flex items-center gap-2 text-subhead">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
+              <span className="truncate">{s.category}</span>
+              <span className="tabular ml-auto text-label-2">{pct(s.amount)}%</span>
+            </li>
+          ))}
+          {rest.length > 0 && (
+            <li className="flex items-center gap-2 text-subhead text-label-2">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-gray/40" />
+              <span className="truncate">{rest.length} more</span>
+              <span className="tabular ml-auto">{pct(rest.reduce((n, s) => n + s.amount, 0))}%</span>
+            </li>
+          )}
+        </ul>
+      </div>
+      <dl className="mt-4 grid grid-cols-3 pt-3 text-center shadow-[inset_0_0.5px_0_var(--separator)]">
+        {stats.map((s) => (
+          <div key={s.label}>
+            <dt className="text-caption font-semibold uppercase tracking-[0.1em] text-label-2">{s.label}</dt>
+            <dd className={`tabular mt-0.5 whitespace-nowrap text-subhead font-semibold sm:text-headline ${s.cls}`}>{formatRM(s.value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 

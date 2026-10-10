@@ -162,10 +162,12 @@ Pendekatan: bina yang paling sikit. Banyak item dah ada dari fasa lepas.
   - [x] Susun hutang ikut kadar faedah tertinggi (yang tak diketahui di bawah)
   - [x] Senario bayar extra RM100/RM200: habis berapa instalment lebih awal, faedah dijimat **hanya** bila kadar diketahui (anggaran, ditulis), dan mampu ke tidak ikut unjuran tunai. Tiada butang bayar
   - Diuji dalam browser: SPayLater phone +RM200 → baki RM159.60, habis 2 instalment awal (12 Nov, bukan 12 Jan), tiada angka faedah, unjuran tunai RM242.40. Kad Maybank 15% di atas bila susun ikut faedah, +RM200 → anggaran RM0.66
-- [ ] **13. Report dan export**
-  - [ ] Ringkasan outstanding ikut kategori (provider = senarai hutang sedia ada)
-  - [ ] Export CSV bayaran ikut filter semasa (tempoh, upcoming, overdue, paid) dan export CSV hutang (Blob browser, tiada library)
+- [x] **13. Report dan export**
+  - [x] Ringkasan outstanding ikut kategori (provider = senarai hutang sedia ada)
+  - [x] Export CSV bayaran ikut filter semasa (tempoh, upcoming, overdue, paid) dan export CSV hutang (Blob browser, tiada library)
   - Ditangguh: carta sejarah baki hutang. Data dah ada dalam `debt_payments`; bina bila diminta
+  - Diuji dalam browser: Business "Owed by type" (loan RM18,400 · equipment RM16,100 · supplier RM3,400 · kad RM2,350 = RM40,250). CSV hutang dan CSV bayaran filter Overdue (Unifi RM199) betul. Satu unit test untuk escaping CSV
+
 - [ ] **14. Debt Agent** (chat `/financebro-ai`)
   - [ ] Function tulen `answerDebtQuestion()`: semua nombor dari function sedia ada (`payments.ts`, `cashflow.ts`), bukan LLM
   - [ ] Jawab 9 soalan contoh spec, termasuk hutang supplier business (guna data dua profile)

@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
+  Download,
   ChevronDown,
   Info,
   Pencil,
@@ -31,7 +32,8 @@ import { useDebtView } from "@/lib/debt/useDebtView";
 import { EditInstalmentModal, ExtendScheduleModal, RescheduleModal } from "@/components/debt/ScheduleModals";
 import { ScheduleDraft, ScheduleEditor, draftRepayment, emptyDraft, previewSchedule } from "@/components/debt/ScheduleEditor";
 import { spendingCategories } from "@/lib/categories";
-import { PAYMENT_FILTERS, PaymentFilter, countdown, extraPaymentScenario, filterPayments, totalDue, totalPaid } from "@/lib/debt/payments";
+import { downloadCsv } from "@/lib/csv";
+import { PAYMENT_FILTERS, PaymentFilter, PaymentItem, countdown, extraPaymentScenario, filterPayments, totalDue, totalPaid } from "@/lib/debt/payments";
 import { toCents } from "@/lib/debt/schedule";
 
 type View = "active" | "paid_off" | "all";
@@ -155,9 +157,14 @@ export default function DebtsPage() {
                 to pay · {unpaidCount} payment{unpaidCount === 1 ? "" : "s"}
               </p>
             )}
-            {filter !== "paid" && (
-              <p className="hidden text-footnote text-label-3 sm:block">Paid and cancelled payments aren&apos;t counted</p>
-            )}
+            <div className="flex items-center gap-3">
+              {filter !== "paid" && (
+                <p className="hidden text-footnote text-label-3 sm:block">Paid and cancelled payments aren&apos;t counted</p>
+              )}
+              <Button variant="ghost" size="sm" icon={<Download className="h-3.5 w-3.5" />} disabled={!shown.length} onClick={() => exportPayments(shown, filter)}>
+                CSV
+              </Button>
+            </div>
           </div>
 
           <div className="overflow-hidden rounded-2xl bg-surface shadow-card">
@@ -210,6 +217,18 @@ export default function DebtsPage() {
           />
           </div>
 
+          {visible.length > 0 && (
+            <div className="mb-3 flex items-start justify-between gap-3 px-1">
+              <p className="text-footnote text-label-2">
+                <span className="font-semibold text-label">Owed by type: </span>
+                {byType(visible).map(([t, amt]) => `${t} ${formatRM(amt)}`).join(" · ")}
+              </p>
+              <Button variant="ghost" size="sm" icon={<Download className="h-3.5 w-3.5" />} onClick={() => exportDebts(visible)}>
+                CSV
+              </Button>
+            </div>
+          )}
+
           {visible.length === 0 ? (
             <div className="rounded-2xl bg-surface px-6 py-14 text-center shadow-card">
               <p className="text-headline">{view === "paid_off" ? "Nothing paid off yet" : "No debts here"}</p>
@@ -253,6 +272,36 @@ export default function DebtsPage() {
       />
     </div>
   );
+}
+
+/** Outstanding per debt type, largest first. */
+function byType(debts: Debt[]): [string, number][] {
+  const m = new Map<string, number>();
+  for (const d of debts) m.set(DEBT_TYPE_LABELS[d.debtType], (m.get(DEBT_TYPE_LABELS[d.debtType]) ?? 0) + Math.round(d.outstandingBalance * 100));
+  return [...m].map(([t, c]) => [t, c / 100] as [string, number]).sort((a, b) => b[1] - a[1]);
+}
+
+const profileName = (m: Debt["mode"]) => (m === "business" ? "Business" : "Personal");
+
+function exportPayments(items: PaymentItem[], filter: PaymentFilter) {
+  downloadCsv(`payments-${filter}-${todayISO()}.csv`, [
+    ["Profile", "Pay to", "Category", "Frequency", "Due date", "Amount", "Paid", "Still due", "Paid on", "Status"],
+    ...items.map((p) => [
+      profileName(p.mode), p.payee, p.category, p.frequency, p.dueDate, p.amount.toFixed(2), p.amountPaid.toFixed(2),
+      p.remaining.toFixed(2), p.paidDate, INSTALMENT_STATUS_STYLE[p.status].label,
+    ]),
+  ]);
+}
+
+function exportDebts(debts: Debt[]) {
+  downloadCsv(`debts-${todayISO()}.csv`, [
+    ["Profile", "Owed to", "Type", "Reference", "Original", "Outstanding", "Repaid", "Repayment", "Frequency", "Interest % p.a.", "Next due", "Next amount", "Status"],
+    ...debts.map((d) => [
+      profileName(d.mode), d.name, DEBT_TYPE_LABELS[d.debtType], d.referenceNo, d.originalAmount.toFixed(2), d.outstandingBalance.toFixed(2),
+      ((Math.round(d.originalAmount * 100) - Math.round(d.outstandingBalance * 100)) / 100).toFixed(2), d.repaymentAmount?.toFixed(2),
+      FREQUENCY_LABELS[d.frequency], d.interestRate, d.nextInstalment?.dueDate, d.nextInstalment?.remaining.toFixed(2), d.status.replace("_", " "),
+    ]),
+  ]);
 }
 
 const EMPTY_PAYMENTS: Record<PaymentFilter, string> = {

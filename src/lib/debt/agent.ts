@@ -30,8 +30,9 @@ const lines = (items: PaymentItem[], today: string) =>
 
 // Words in a debt's name that identify it. Generic words would match too much.
 const GENERIC = new Set(["bank", "card", "loan", "business", "invoice", "with", "from", "machine", "working", "capital"]);
-// SPayLater is Shopee's pay-later product.
-const ALIASES: Record<string, string[]> = { shopee: ["spaylater"] };
+// SPayLater is Shopee's pay-later product. "paylater" / "bnpl" mean every BNPL app.
+const BNPL = ["shopee", "spaylater", "tiktok", "atome", "paylater"];
+const ALIASES: Record<string, string[]> = { shopee: ["spaylater"], paylater: BNPL, bnpl: BNPL };
 
 function matchDebts(text: string, debts: Debt[]): Debt[] {
   const t = text.toLowerCase();

@@ -86,17 +86,14 @@ tx(K, d(9, 19), "expense", 150, "Marketing", "Meta ads", "bank");
 tx(K, d(9, 11), "expense", 115, "Operating Expenses", "LPG gas cylinder", "cash");
 tx(K, d(9, 25), "expense", 115, "Operating Expenses", "LPG gas cylinder", "cash");
 tx(K, d(9, 9), "expense", 280, "Operating Expenses", "Espresso machine service", "bank");
-// August statement, paid before debts were tracked in the app (not linked to a debt record)
-tx(K, d(9, 18), "expense", 2140.6, "Debt Repayment", "Maybank Business card bill", "bank");
 // Planted duplicate supplier charge (same merchant, date and amount; flag left empty for the agent)
 tx(K, d(9, 24), "expense", 612, "Ingredients", "Kopi Bumi Roasters", "bank", { note: "Invoice KBR-0924" });
 tx(K, d(9, 24), "expense", 612, "Ingredients", "Kopi Bumi Roasters", "bank", { note: "Invoice KBR-0924" });
 // Uncategorised rows for the agent to fix
 tx(K, d(9, 8), "expense", 150, "Uncategorised", "DuitNow transfer – AHMAD BIN K", "bank");
-tx(K, d(9, 13), "expense", 86.9, "Uncategorised", "POS 4412 MR DIY", "bank");
 tx(K, d(9, 27), "expense", 42, "Uncategorised", "QR payment SERI MURNI", "ewallet");
 
-kopiMonth(10, 9);
+kopiMonth(10, 10);
 tx(K, d(10, 6), "expense", 150, "Marketing", "Meta ads", "bank");
 
 // ======================================================================
@@ -123,20 +120,12 @@ tx(S, d(9, 28), "income", 230, "Part-time income", "Tutoring – Cikgu Online", 
 tx(S, d(9, 11), "expense", 450, "Rent", "Room rent share", "bank");
 tx(S, d(9, 13), "expense", 48, "Utilities", "CelcomDigi postpaid", "bank");
 tx(S, d(9, 3), "expense", 15.9, "Subscriptions", "Spotify Student", "bank");
-tx(S, d(9, 5), "expense", 52.8, "Subscriptions", "Adobe Creative Cloud", "bank"); // the forgotten subscription
-tx(S, d(9, 9), "expense", 3.9, "Subscriptions", "iCloud+", "bank");
-tx(S, d(9, 6), "expense", 64.9, "Shopping", "Shopee", "ewallet");
-tx(S, d(9, 21), "expense", 39.0, "Shopping", "Shopee", "ewallet");
 tx(S, d(9, 13), "expense", 32, "Entertainment", "GSC cinema", "ewallet");
-tx(S, d(9, 10), "expense", 12.5, "Education", "Printing & binding", "cash");
 tx(S, d(9, 24), "expense", 28, "Education", "Lab manual", "cash");
-tx(S, d(9, 19), "expense", 25, "Uncategorised", "DuitNow transfer – NUR A", "bank");
 tx(S, d(9, 26), "expense", 18, "Uncategorised", "TNG eWallet reload", "ewallet");
 
-studentMonth(10, 9);
+studentMonth(10, 10);
 tx(S, d(10, 3), "expense", 15.9, "Subscriptions", "Spotify Student", "bank");
-tx(S, d(10, 5), "expense", 52.8, "Subscriptions", "Adobe Creative Cloud", "bank");
-tx(S, d(10, 8), "expense", 27.9, "Shopping", "Shopee", "ewallet");
 
 // ---------- profiles, budgets, commitments, income ----------
 const profiles = [
@@ -171,7 +160,6 @@ const income = [
   { profile_id: K, source: "sales", expected_amount: 8200, expected_date: d(10, 31), confirmed: false },
   { profile_id: S, source: "allowance", expected_amount: 600, expected_date: d(10, 15), confirmed: true },
   { profile_id: S, source: "other", expected_amount: 230, expected_date: d(10, 26), confirmed: false },
-  { profile_id: S, source: "PTPTN", expected_amount: 2250, expected_date: d(11, 3), confirmed: false },
 ];
 
 // ---------- debts (all fictional sample records) ----------
@@ -184,43 +172,29 @@ const monthly = (amount, repayment, first) =>
 const once = (amount, due) => generateSchedule({ amount, frequency: "one_time", firstDueDate: due });
 
 const debts = [
-  // Student
+  // Aina — three BNPL apps, one plan each. The story: RM760 still owed, RM480 due
+  // this month, and TikTok's 5 Oct instalment is already overdue.
   { id: debtId(1), profile_id: S, name: "Shopee PayLater", debt_type: "bnpl", original_amount: 300, repayment_amount: 100,
-    frequency: "monthly", schedule: monthly(300, 100, d(10, 15)), notes: "Wireless earbuds, 3 monthly instalments",
+    frequency: "monthly", schedule: monthly(300, 100, d(10, 15)), notes: "Wireless earbuds, RM100 × 3 months",
+    start_date: d(9, 15), end_date: d(12, 15),
     purchase: { txn_date: d(9, 15), category: "Shopping", note: "Wireless earbuds (Shopee PayLater)" } },
-  { id: debtId(2), profile_id: S, name: "SPayLater – phone", debt_type: "bnpl", original_amount: 539.4, repayment_amount: 89.9,
-    frequency: "monthly", schedule: monthly(539.4, 89.9, "2026-08-12"), paid: ["2026-08-12", d(9, 12)],
-    start_date: "2026-07-12", end_date: "2027-01-12",
-    purchase: { txn_date: "2026-07-12", category: "Shopping", note: "Phone (SPayLater, 6 months)" } },
-  { id: debtId(3), profile_id: S, name: "SPayLater – headphones", debt_type: "bnpl", original_amount: 182, repayment_amount: 45.5,
-    frequency: "monthly", schedule: monthly(182, 45.5, "2026-08-14"), paid: ["2026-08-14", d(9, 14)],
-    start_date: "2026-07-14", end_date: "2026-11-14",
-    purchase: { txn_date: "2026-07-14", category: "Shopping", note: "Headphones (SPayLater, 4 months)" } },
-  { id: debtId(4), profile_id: S, name: "Grab PayLater", debt_type: "bnpl", original_amount: 64.2, frequency: "one_time",
-    schedule: once(64.2, d(10, 31)), notes: "September rides and GrabFood",
-    purchase: { txn_date: d(9, 30), category: "Transportation", note: "September Grab rides (Grab PayLater)" } },
-  { id: debtId(5), profile_id: S, name: "Abang Hafiz", debt_type: "family_friend", original_amount: 200, frequency: "irregular",
-    schedule: normaliseIrregularSchedule([{ due_date: d(10, 25), amount: 80 }, { due_date: d(11, 25), amount: 120 }]),
-    notes: "Borrowed for textbooks. No interest; pay when allowance comes in." },
-  // Kopi Senja — RM 3,400 in supplier invoices due before the next payout
-  { id: debtId(11), profile_id: K, name: "Kopi Bumi Roasters", debt_type: "supplier_invoice", original_amount: 1680,
-    frequency: "one_time", schedule: once(1680, d(10, 12)), reference_no: "KBR-1001", notes: "Arabica + robusta beans, 30-day terms",
-    purchase: { txn_date: d(9, 12), category: "Ingredients", note: "Beans on 30-day terms (invoice KBR-1001)" } },
-  { id: debtId(12), profile_id: K, name: "Farm Fresh", debt_type: "supplier_invoice", original_amount: 940,
-    frequency: "one_time", schedule: once(940, d(10, 13)), reference_no: "FF-88213", notes: "Fresh milk, September deliveries",
-    purchase: { txn_date: d(9, 13), category: "Ingredients", note: "Milk on credit (invoice FF-88213)" } },
-  { id: debtId(13), profile_id: K, name: "EcoPack Supplies", debt_type: "supplier_invoice", original_amount: 780,
-    frequency: "one_time", schedule: once(780, d(10, 14)), reference_no: "EP-2026-311", notes: "Cups, lids and paper bags",
-    purchase: { txn_date: d(9, 14), category: "Packaging", note: "Packaging on credit (invoice EP-2026-311)" } },
-  { id: debtId(14), profile_id: K, name: "Maybank Business card", debt_type: "business_credit_card", original_amount: 2350,
+  { id: debtId(2), profile_id: S, name: "TikTok PayLater", debt_type: "bnpl", original_amount: 240, repayment_amount: 80,
+    frequency: "monthly", schedule: monthly(240, 80, d(9, 5)), paid: [d(9, 5)], notes: "Sneakers from TikTok Shop, RM80 × 3 months",
+    start_date: "2026-08-05", end_date: d(11, 5),
+    purchase: { txn_date: "2026-08-05", category: "Shopping", note: "Sneakers (TikTok PayLater)" } },
+  { id: debtId(3), profile_id: S, name: "Atome", debt_type: "bnpl", original_amount: 900, repayment_amount: 300,
+    frequency: "monthly", schedule: monthly(900, 300, "2026-08-20"), paid: ["2026-08-20", d(9, 20)],
+    notes: "Phone, 3 payments of RM300 (first paid at checkout)", start_date: "2026-08-20", end_date: d(10, 20),
+    purchase: { txn_date: "2026-08-20", category: "Shopping", note: "Phone (Atome, 3 payments)" } },
+  // Kopi Senja — one supplier invoice due before the next payout, a card statement, a bank loan
+  { id: debtId(11), profile_id: K, name: "Kopi Bumi Roasters", debt_type: "supplier_invoice", original_amount: 3400,
+    frequency: "one_time", schedule: once(3400, d(10, 14)), reference_no: "KBR-1001", notes: "September beans, 30-day terms",
+    purchase: { txn_date: d(9, 14), category: "Ingredients", note: "Beans on 30-day terms (invoice KBR-1001)" } },
+  { id: debtId(12), profile_id: K, name: "Maybank Business card", debt_type: "business_credit_card", original_amount: 2350,
     frequency: "one_time", schedule: once(2350, d(10, 18)), reference_no: "Statement Sep 2026", interest_rate: 15,
     notes: "Full statement balance; interest applies only if not paid in full",
     purchase: { txn_date: d(9, 30), category: "Operating Expenses", note: "September card purchases (statement)" } },
-  { id: debtId(15), profile_id: K, name: "Hong Leong Bank – espresso machine", debt_type: "equipment_financing", original_amount: 27600,
-    repayment_amount: 1150, frequency: "monthly", schedule: monthly(27600, 1150, "2025-12-20"),
-    paid: ["2025-12-20", "2026-01-20", "2026-02-20", "2026-03-20", "2026-04-20", "2026-05-20", "2026-06-20", "2026-07-20", "2026-08-20", d(9, 20)],
-    start_date: "2025-11-20", end_date: "2027-11-20", reference_no: "HLB-EF-55102" },
-  { id: debtId(16), profile_id: K, name: "SME Bank – working capital loan", debt_type: "business_loan", original_amount: 30000,
+  { id: debtId(13), profile_id: K, name: "SME Bank – working capital loan", debt_type: "business_loan", original_amount: 30000,
     outstanding_balance: 18400, repayment_amount: 920, frequency: "monthly", schedule: monthly(18400, 920, d(10, 28)),
     start_date: "2025-03-28", reference_no: "SMEB-WC-7781", notes: "Repayments before October 2026 were not tracked in the app" },
 ];

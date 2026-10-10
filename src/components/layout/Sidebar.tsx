@@ -7,6 +7,7 @@ import {
   Bot,
   ArrowLeftRight,
   CalendarClock,
+  CreditCard,
   Wallet,
   X,
   RotateCcw,
@@ -18,6 +19,7 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/financebro-ai", label: "FinanceBro AI", icon: Bot },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { href: "/debts", label: "Debts", icon: CreditCard },
   { href: "/commitments", label: "Commitments", icon: CalendarClock },
 ];
 

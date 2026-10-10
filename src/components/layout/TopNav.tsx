@@ -10,6 +10,7 @@ const pageTitles: Record<string, string> = {
   "/": "Dashboard",
   "/financebro-ai": "FinanceBro AI",
   "/transactions": "Transactions",
+  "/debts": "Debts",
   "/commitments": "Commitments",
 };
 

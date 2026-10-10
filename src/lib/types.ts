@@ -163,3 +163,71 @@ export interface ModalProps {
   onClose: () => void;
   title: string;
 }
+
+// ============================================================
+// Debt management
+// ============================================================
+
+export type PersonalDebtType =
+  | "bnpl" | "credit_card" | "personal_loan" | "car_loan" | "housing_loan"
+  | "student_loan" | "family_friend" | "other_personal";
+export type BusinessDebtType =
+  | "business_loan" | "business_credit_card" | "equipment_financing"
+  | "supplier_invoice" | "overdraft" | "other_business";
+export type DebtType = PersonalDebtType | BusinessDebtType;
+
+export type DebtFrequency = "one_time" | "weekly" | "biweekly" | "monthly" | "yearly" | "irregular";
+export type DebtStatus = "active" | "paid_off" | "cancelled";
+/** "overdue" and "upcoming" are derived from the due date; the DB stores "scheduled". */
+export type InstalmentStatus = "upcoming" | "partial" | "paid" | "overdue" | "cancelled";
+
+export interface DebtInstalment {
+  id: string;
+  debtId: string;
+  dueDate: string; // ISO date
+  amount: number; // scheduled
+  amountPaid: number;
+  remaining: number; // amount − amountPaid (0 when cancelled)
+  paidDate?: string;
+  status: InstalmentStatus;
+}
+
+export interface Debt {
+  id: string;
+  mode: AppMode;
+  name: string; // provider / creditor / supplier
+  debtType: DebtType;
+  originalAmount: number;
+  outstandingBalance: number;
+  repaymentAmount?: number; // not set for irregular schedules
+  frequency: DebtFrequency;
+  interestRate?: number; // % per year, only when known
+  startDate?: string;
+  endDate?: string;
+  status: DebtStatus;
+  referenceNo?: string;
+  notes?: string;
+  isSample: boolean;
+  createdAt: string;
+  instalments: DebtInstalment[]; // sorted by due date
+  nextInstalment?: DebtInstalment; // earliest unpaid, not cancelled
+}
+
+/** Fields the user enters when adding a debt (the schedule is passed separately). */
+export interface NewDebtInput {
+  name: string;
+  debtType: DebtType;
+  originalAmount: number;
+  outstandingBalance: number;
+  repaymentAmount?: number;
+  frequency: DebtFrequency;
+  interestRate?: number;
+  startDate?: string;
+  endDate?: string;
+  referenceNo?: string;
+  notes?: string;
+}
+
+/** Details that can be edited without touching amounts or the schedule. */
+export type DebtDetailsUpdate = Partial<Pick<NewDebtInput,
+  "name" | "debtType" | "interestRate" | "startDate" | "endDate" | "referenceNo" | "notes">>;

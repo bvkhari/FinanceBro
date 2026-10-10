@@ -15,6 +15,7 @@ import { writeFileSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { generateSchedule, normaliseIrregularSchedule } from "../src/lib/debt/schedule.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dry = process.argv.includes("--dry");
@@ -85,8 +86,8 @@ tx(K, d(9, 19), "expense", 150, "Marketing", "Meta ads", "bank");
 tx(K, d(9, 11), "expense", 115, "Operating Expenses", "LPG gas cylinder", "cash");
 tx(K, d(9, 25), "expense", 115, "Operating Expenses", "LPG gas cylinder", "cash");
 tx(K, d(9, 9), "expense", 280, "Operating Expenses", "Espresso machine service", "bank");
-tx(K, d(9, 20), "expense", 1150, "Operating Expenses", "Equipment loan – espresso machine", "bank");
-tx(K, d(9, 18), "expense", 2140.6, "Operating Expenses", "Maybank Business card bill", "bank");
+// August statement, paid before debts were tracked in the app (not linked to a debt record)
+tx(K, d(9, 18), "expense", 2140.6, "Debt Repayment", "Maybank Business card bill", "bank");
 // Planted duplicate supplier charge (same merchant, date and amount; flag left empty for the agent)
 tx(K, d(9, 24), "expense", 612, "Ingredients", "Kopi Bumi Roasters", "bank", { note: "Invoice KBR-0924" });
 tx(K, d(9, 24), "expense", 612, "Ingredients", "Kopi Bumi Roasters", "bank", { note: "Invoice KBR-0924" });
@@ -121,8 +122,6 @@ tx(S, d(9, 14), "income", 220, "Part-time income", "Tutoring – Cikgu Online", 
 tx(S, d(9, 28), "income", 230, "Part-time income", "Tutoring – Cikgu Online", "bank");
 tx(S, d(9, 11), "expense", 450, "Rent", "Room rent share", "bank");
 tx(S, d(9, 13), "expense", 48, "Utilities", "CelcomDigi postpaid", "bank");
-tx(S, d(9, 12), "expense", 89.9, "Shopping", "SPayLater – phone (instalment)", "ewallet");
-tx(S, d(9, 14), "expense", 45.5, "Shopping", "SPayLater – headphones (instalment)", "ewallet");
 tx(S, d(9, 3), "expense", 15.9, "Subscriptions", "Spotify Student", "bank");
 tx(S, d(9, 5), "expense", 52.8, "Subscriptions", "Adobe Creative Cloud", "bank"); // the forgotten subscription
 tx(S, d(9, 9), "expense", 3.9, "Subscriptions", "iCloud+", "bank");
@@ -158,20 +157,13 @@ const budgets = [
 }));
 
 const commitments = [
-  // Kopi Senja — RM 3,400 in supplier invoices due before the next payout
-  { profile_id: K, name: "Kopi Bumi Roasters – invoice KBR-1001", kind: "supplier", amount: 1680, due_date: d(10, 12), recurrence: "none" },
-  { profile_id: K, name: "Farm Fresh – milk invoice", kind: "supplier", amount: 940, due_date: d(10, 13), recurrence: "none" },
-  { profile_id: K, name: "EcoPack – packaging invoice", kind: "supplier", amount: 780, due_date: d(10, 14), recurrence: "none" },
+  // Bills only. BNPL, loans, cards and supplier invoices live in `debts` below.
   { profile_id: K, name: "Shoplot rent", kind: "rent", amount: 3200, due_date: d(10, 15), recurrence: "monthly" },
-  { profile_id: K, name: "Maybank Business card", kind: "credit_card", amount: 2350, due_date: d(10, 18), recurrence: "monthly", outstanding_balance: 2350 },
-  { profile_id: K, name: "Equipment loan – espresso machine", kind: "loan", amount: 1150, due_date: d(10, 20), recurrence: "monthly", instalments_left: 14, outstanding_balance: 16100 },
   { profile_id: K, name: "TNB electricity", kind: "bill", amount: 620, due_date: d(10, 22), recurrence: "monthly" },
   { profile_id: K, name: "Unifi Business", kind: "bill", amount: 199, due_date: d(10, 7), recurrence: "monthly", status: "overdue" },
   // Student
   { profile_id: S, name: "Room rent share", kind: "rent", amount: 450, due_date: d(10, 11), recurrence: "monthly" },
-  { profile_id: S, name: "SPayLater – phone", kind: "bnpl", amount: 89.9, due_date: d(10, 12), recurrence: "monthly", instalments_left: 4, outstanding_balance: 359.6 },
   { profile_id: S, name: "CelcomDigi postpaid", kind: "bill", amount: 48, due_date: d(10, 13), recurrence: "monthly" },
-  { profile_id: S, name: "SPayLater – headphones", kind: "bnpl", amount: 45.5, due_date: d(10, 14), recurrence: "monthly", instalments_left: 2, outstanding_balance: 91 },
 ];
 
 const income = [
@@ -180,6 +172,49 @@ const income = [
   { profile_id: S, source: "allowance", expected_amount: 600, expected_date: d(10, 15), confirmed: true },
   { profile_id: S, source: "other", expected_amount: 230, expected_date: d(10, 26), confirmed: false },
   { profile_id: S, source: "PTPTN", expected_amount: 2250, expected_date: d(11, 3), confirmed: false },
+];
+
+// ---------- debts (all fictional sample records) ----------
+// `schedule` comes from the same generator the app uses. `paid` lists the
+// instalments already paid; they go through record_debt_payment(), exactly
+// like a payment made in the app, so the history is linked end to end.
+const debtId = (n) => `00000000-0000-4000-8000-${String(100 + n).padStart(12, "0")}`;
+const monthly = (amount, repayment, first) =>
+  generateSchedule({ amount, instalmentAmount: repayment, frequency: "monthly", firstDueDate: first });
+const once = (amount, due) => generateSchedule({ amount, frequency: "one_time", firstDueDate: due });
+
+const debts = [
+  // Student
+  { id: debtId(1), profile_id: S, name: "Shopee PayLater", debt_type: "bnpl", original_amount: 300, repayment_amount: 100,
+    frequency: "monthly", schedule: monthly(300, 100, d(10, 15)), notes: "Wireless earbuds, 3 monthly instalments" },
+  { id: debtId(2), profile_id: S, name: "SPayLater – phone", debt_type: "bnpl", original_amount: 539.4, repayment_amount: 89.9,
+    frequency: "monthly", schedule: monthly(539.4, 89.9, "2026-08-12"), paid: ["2026-08-12", d(9, 12)],
+    start_date: "2026-07-12", end_date: "2027-01-12" },
+  { id: debtId(3), profile_id: S, name: "SPayLater – headphones", debt_type: "bnpl", original_amount: 182, repayment_amount: 45.5,
+    frequency: "monthly", schedule: monthly(182, 45.5, "2026-08-14"), paid: ["2026-08-14", d(9, 14)],
+    start_date: "2026-07-14", end_date: "2026-11-14" },
+  { id: debtId(4), profile_id: S, name: "Grab PayLater", debt_type: "bnpl", original_amount: 64.2, frequency: "one_time",
+    schedule: once(64.2, d(10, 31)), notes: "September rides and GrabFood" },
+  { id: debtId(5), profile_id: S, name: "Abang Hafiz", debt_type: "family_friend", original_amount: 200, frequency: "irregular",
+    schedule: normaliseIrregularSchedule([{ due_date: d(10, 25), amount: 80 }, { due_date: d(11, 25), amount: 120 }]),
+    notes: "Borrowed for textbooks. No interest; pay when allowance comes in." },
+  // Kopi Senja — RM 3,400 in supplier invoices due before the next payout
+  { id: debtId(11), profile_id: K, name: "Kopi Bumi Roasters", debt_type: "supplier_invoice", original_amount: 1680,
+    frequency: "one_time", schedule: once(1680, d(10, 12)), reference_no: "KBR-1001", notes: "Arabica + robusta beans, 30-day terms" },
+  { id: debtId(12), profile_id: K, name: "Farm Fresh", debt_type: "supplier_invoice", original_amount: 940,
+    frequency: "one_time", schedule: once(940, d(10, 13)), reference_no: "FF-88213", notes: "Fresh milk, September deliveries" },
+  { id: debtId(13), profile_id: K, name: "EcoPack Supplies", debt_type: "supplier_invoice", original_amount: 780,
+    frequency: "one_time", schedule: once(780, d(10, 14)), reference_no: "EP-2026-311", notes: "Cups, lids and paper bags" },
+  { id: debtId(14), profile_id: K, name: "Maybank Business card", debt_type: "business_credit_card", original_amount: 2350,
+    frequency: "one_time", schedule: once(2350, d(10, 18)), reference_no: "Statement Sep 2026", interest_rate: 15,
+    notes: "Full statement balance; interest applies only if not paid in full" },
+  { id: debtId(15), profile_id: K, name: "Hong Leong Bank – espresso machine", debt_type: "equipment_financing", original_amount: 27600,
+    repayment_amount: 1150, frequency: "monthly", schedule: monthly(27600, 1150, "2025-12-20"),
+    paid: ["2025-12-20", "2026-01-20", "2026-02-20", "2026-03-20", "2026-04-20", "2026-05-20", "2026-06-20", "2026-07-20", "2026-08-20", d(9, 20)],
+    start_date: "2025-11-20", end_date: "2027-11-20", reference_no: "HLB-EF-55102" },
+  { id: debtId(16), profile_id: K, name: "SME Bank – working capital loan", debt_type: "business_loan", original_amount: 30000,
+    outstanding_balance: 18400, repayment_amount: 920, frequency: "monthly", schedule: monthly(18400, 920, d(10, 28)),
+    start_date: "2025-03-28", reference_no: "SMEB-WC-7781", notes: "Repayments before October 2026 were not tracked in the app" },
 ];
 
 // ---------- SQL ----------
@@ -208,6 +243,18 @@ ${insert("transactions", txns, ["profile_id", "txn_date", "direction", "amount",
 ${insert("budgets", budgets, ["profile_id", "month", "category", "limit_amount", "essential"])}
 ${insert("commitments", commitments, ["profile_id", "name", "kind", "amount", "due_date", "recurrence", "instalments_left", "outstanding_balance", "status"])}
 ${insert("income_schedule", income, ["profile_id", "source", "expected_amount", "expected_date", "confirmed"])}
+${debts.map((dbt) => {
+  const { schedule, paid = [], ...fields } = dbt;
+  return `select create_debt(${lit(JSON.stringify({ ...fields, is_sample: true }))}::jsonb, ${lit(JSON.stringify(schedule))}::jsonb);`;
+}).join("\n")}
+
+-- Instalments already paid, recorded through the same function the app uses.
+${debts.flatMap((dbt) => (dbt.paid ?? []).map((due) => {
+  const inst = dbt.schedule.find((i) => i.due_date === due);
+  if (!inst) throw new Error(`${dbt.name}: no instalment due ${due}`);
+  return `select record_debt_payment((select id from debt_instalments where debt_id = ${lit(dbt.id)} and due_date = ${lit(due)}), ${lit(inst.amount)}, ${lit(due)}, ${lit(`seed-${dbt.id}-${due}`)});`;
+})).join("\n")}
+
 -- The balance trigger moved current_balance while the history was inserted; pin it to today's balance.
 ${profiles.map((p) => `update profiles set current_balance = ${lit(p.current_balance)} where id = ${lit(p.id)};`).join("\n")}
 
@@ -225,12 +272,18 @@ for (const p of profiles) {
   const sepIn = sum((t) => t.direction === "income" && t.txn_date.startsWith("2026-09"));
   const sepOut = sum((t) => t.direction === "expense" && t.txn_date.startsWith("2026-09"));
   const next = income.filter((i) => i.profile_id === p.id).sort((a, b) => a.expected_date.localeCompare(b.expected_date))[0];
-  const dueBefore = commitments
+  const billsDue = commitments
     .filter((c) => c.profile_id === p.id && c.status !== "paid" && c.due_date < next.expected_date)
-    .reduce((a, c) => a + cents(c.amount), 0) / 100;
+    .reduce((a, c) => a + cents(c.amount), 0);
+  const instalmentsDue = debts
+    .filter((dbt) => dbt.profile_id === p.id)
+    .flatMap((dbt) => dbt.schedule.filter((i) => !(dbt.paid ?? []).includes(i.due_date)))
+    .filter((i) => i.due_date < next.expected_date)
+    .reduce((a, i) => a + cents(i.amount), 0);
+  const dueBefore = (billsDue + instalmentsDue) / 100;
   const buffer = Math.round(sepIn * p.safety_buffer_pct) / 100;
   console.log(
-    `${p.name}: ${mine.length} txns (Sep ${mine.filter((t) => t.txn_date.startsWith("2026-09")).length}) · ` +
+    `${p.name}: ${debts.filter((dbt) => dbt.profile_id === p.id).length} debts · ${mine.length} txns (Sep ${mine.filter((t) => t.txn_date.startsWith("2026-09")).length}) · ` +
       `Sep income RM ${sepIn.toFixed(2)} · Sep expense RM ${sepOut.toFixed(2)} · balance RM ${p.current_balance.toFixed(2)} · ` +
       `next income ${next.expected_date} · due before it RM ${dueBefore.toFixed(2)} · buffer RM ${buffer.toFixed(2)} · ` +
       `safe-to-spend before budget ≈ RM ${(p.current_balance - dueBefore - buffer).toFixed(2)}`

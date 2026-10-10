@@ -58,9 +58,10 @@ export function isOverdue(dateStr: string): boolean {
   return new Date(dateStr) < new Date();
 }
 
-/** Get today's date in ISO format */
+/** Today's date as YYYY-MM-DD in the user's local time zone (not UTC). */
 export function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 /** Generate a unique ID */

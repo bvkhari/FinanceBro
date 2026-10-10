@@ -18,6 +18,9 @@ import {
   CategoryBreakdown,
   IncomeExpenseData,
   AppNotification,
+  Debt,
+  DebtDetailsUpdate,
+  NewDebtInput,
 } from "./types";
 import {
   ProfileData,
@@ -28,7 +31,12 @@ import {
   insertCommitment,
   updateCommitmentRow,
   subscribeToProfile,
+  createDebt,
+  updateDebtDetails,
+  recordDebtPayment,
+  PaymentResult,
 } from "./db";
+import type { ScheduledInstalment } from "./debt/schedule";
 import { daysUntil, todayISO } from "./utils";
 
 // ============================================================
@@ -59,6 +67,18 @@ interface FinanceContextValue {
   addCommitment: (c: Omit<FinancialCommitment, "id" | "createdAt" | "mode">) => void;
   updateCommitment: (id: string, updates: Partial<FinancialCommitment>) => void;
   markCommitmentPaid: (id: string) => void;
+
+  // Debts — these return promises and throw, so forms can show the error
+  debts: Debt[];
+  addDebt: (input: NewDebtInput, schedule: ScheduledInstalment[]) => Promise<void>;
+  updateDebt: (id: string, details: DebtDetailsUpdate) => Promise<void>;
+  recordPayment: (p: {
+    instalmentId: string;
+    amount: number;
+    paidDate: string;
+    interest: number;
+    idempotencyKey: string;
+  }) => Promise<PaymentResult>;
 
   // Computed values
   summary: FinancialSummary;
@@ -140,6 +160,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   const transactions = useMemo(() => current?.transactions ?? [], [current]);
   const commitments = useMemo(() => current?.commitments ?? [], [current]);
+  const debts = useMemo(() => current?.debts ?? [], [current]);
 
   // === Service-layer functions (Supabase) ===
 
@@ -197,6 +218,34 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       });
     },
     [write, mode, commitments]
+  );
+
+  /** Like `write`, but rethrows so the calling form can show the error. */
+  const writeOrThrow = useCallback(
+    async <T,>(fn: (profileId: string) => Promise<T>): Promise<T> => {
+      if (!profileId) throw new Error("No active profile");
+      try {
+        return await fn(profileId);
+      } finally {
+        reload(mode);
+      }
+    },
+    [profileId, mode, reload]
+  );
+
+  const addDebt = useCallback(
+    (input: NewDebtInput, schedule: ScheduledInstalment[]) => writeOrThrow((pid) => createDebt(pid, input, schedule)),
+    [writeOrThrow]
+  );
+
+  const updateDebt = useCallback(
+    (id: string, details: DebtDetailsUpdate) => writeOrThrow((pid) => updateDebtDetails(pid, id, details)),
+    [writeOrThrow]
+  );
+
+  const recordPayment = useCallback(
+    (p: Parameters<typeof recordDebtPayment>[0]) => writeOrThrow(() => recordDebtPayment(p)),
+    [writeOrThrow]
   );
 
   // Monthly figures cover the current calendar month only.
@@ -357,6 +406,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     addCommitment,
     updateCommitment,
     markCommitmentPaid,
+    debts,
+    addDebt,
+    updateDebt,
+    recordPayment,
     summary,
     budget,
     categoryBreakdown,

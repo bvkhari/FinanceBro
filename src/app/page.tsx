@@ -20,6 +20,7 @@ import type { CashFlow } from "@/lib/cashflow";
 import { addDays, dueWithin, groupByCreditor, totalDue } from "@/lib/debt/payments";
 import { CreditorGroups } from "@/components/debt/CreditorGroups";
 import { Modal } from "@/components/ui/Modal";
+import { AddPicker } from "@/components/AddPicker";
 import { formatRM, formatDateShort } from "@/lib/utils";
 import {
   BarChart,
@@ -348,7 +349,7 @@ function DebtWorkspace() {
 
           {/* Everything still owed, not just what is due: the bar shows how much of it falls due in the next 30 days. */}
           <Link
-            href="/debts?tab=debts"
+            href="/payments"
             className="press group flex items-end justify-between gap-4 p-5 shadow-[inset_0_0.5px_0_var(--separator)] hover:bg-gray/8 sm:shadow-[inset_0.5px_0_0_var(--separator)]"
           >
             <div className="min-w-0 flex-1">
@@ -381,7 +382,7 @@ function DebtWorkspace() {
         <section className="lg:col-span-3">
           <header className="mb-2 flex min-h-8 items-center justify-between gap-3 px-1">
             <h2 className="text-title3 text-label">Pay first</h2>
-            <SeeAll href="/debts" />
+            <SeeAll href="/payments" />
           </header>
           {groups30.length === 0 ? (
             <p className="rounded-2xl bg-surface py-10 text-center text-subhead text-label-2 shadow-card">Nothing to pay. Nice.</p>
@@ -427,7 +428,7 @@ function DebtWorkspace() {
         <CreditorGroups groups={groupByCreditor(sheetItems, debts)} today={today} openFirst />
       )}
       <Link
-        href={`/debts?range=${sheet ?? 30}`}
+        href={`/payments?range=${sheet ?? 30}`}
         className="press mt-4 flex h-11 items-center justify-center rounded-xl bg-accent text-headline text-white"
       >
         Record a payment
@@ -438,28 +439,39 @@ function DebtWorkspace() {
 }
 
 const QUICK = [
-  { href: "/debts", label: "Pay", icon: CreditCard },
-  { href: "/commitments", label: "Bills", icon: CalendarClock },
-  { href: "/transactions?new=1", label: "Add", icon: Plus },
+  { href: "/payments", label: "Pay", icon: CreditCard },
+  { href: "/payments?section=bills", label: "Bills", icon: CalendarClock },
+  { href: null, label: "Add", icon: Plus },
   { href: "/financebro-ai", label: "Ask AI", icon: Sparkles },
 ];
 
 // Shortcut tiles under the balance card: the four things people come here to do.
+// "Add" opens the same picker as the Payments page: expense, bill or debt.
 function QuickActions({ className = "" }: { className?: string }) {
+  const [picking, setPicking] = useState(false);
+  const tile = "press flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-surface py-3.5 shadow-card hover:bg-gray/7";
   return (
     <nav aria-label="Quick actions" className={`grid grid-cols-4 gap-3 lg:grid-cols-2 ${className}`}>
-      {QUICK.map(({ href, label, icon: Icon }) => (
-        <Link
-          key={label}
-          href={href}
-          className="press flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-surface py-3.5 shadow-card hover:bg-gray/7"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray/12 text-label">
-            <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
-          </span>
-          <span className="text-footnote font-medium text-label">{label}</span>
-        </Link>
-      ))}
+      {QUICK.map(({ href, label, icon: Icon }) => {
+        const body = (
+          <>
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray/12 text-label">
+              <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
+            </span>
+            <span className="text-footnote font-medium text-label">{label}</span>
+          </>
+        );
+        return href ? (
+          <Link key={label} href={href} className={tile}>
+            {body}
+          </Link>
+        ) : (
+          <button key={label} type="button" onClick={() => setPicking(true)} className={tile}>
+            {body}
+          </button>
+        );
+      })}
+      <AddPicker isOpen={picking} onClose={() => setPicking(false)} />
     </nav>
   );
 }

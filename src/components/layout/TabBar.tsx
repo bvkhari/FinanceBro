@@ -13,7 +13,7 @@ export function TabBar() {
       aria-label="Main"
       className="material material-edge-t fixed inset-x-0 bottom-0 z-30 pb-[env(safe-area-inset-bottom)]"
     >
-      <ul className="mx-auto grid h-[3.25rem] max-w-lg grid-cols-5">
+      <ul className="mx-auto grid h-[3.25rem] max-w-lg grid-cols-4">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;

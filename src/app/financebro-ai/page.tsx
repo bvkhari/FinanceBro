@@ -124,7 +124,7 @@ export default function FinanceBroAIPage() {
     const amount = rmMatch ? parseFloat(rmMatch[1]) : 0;
     const account = mode === "individual" ? "personal" : "business";
 
-    // Debt questions first: every figure comes from the same functions as the Debts page.
+    // Debt questions first: every figure comes from the same functions as the Payments page.
     const today = todayISO();
     const debtAnswer = answerDebtQuestion(userText, {
       debts,
@@ -274,7 +274,7 @@ export default function FinanceBroAIPage() {
         const assistantMsg: ChatMessage = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `You have ${formatRM(summary.upcomingCommitments)} in bills and debt repayments due by ${dueBy}. The Payments tab on the Debts page lists each one, and you can record payments there.`,
+          content: `You have ${formatRM(summary.upcomingCommitments)} in bills and debt repayments due by ${dueBy}. The Payments page lists each one, and you can record payments there.`,
           timestamp: new Date().toISOString(),
           isDemoPreview: true,
           agentSteps: steps.map((s) => ({ ...s, status: "completed" as const })),

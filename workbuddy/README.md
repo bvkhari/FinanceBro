@@ -33,6 +33,7 @@ WorkBuddy's agents are FinanceBro's AI. WorkBuddy does the reasoning. FinanceBro
 |---|---|
 | `get_snapshot` | Gives the balance, safe-to-spend and daily allowance, the cash flow to month end, debt totals, spending by category, and data issues |
 | `list_transactions`, `list_debts`, `list_payments_due`, `monthly_report` | Read the user's records |
+| `generate_report` | Creates a monthly, spending or debt-schedule report with FinanceBro's report generator, and returns a link to it (CSV and PDF on the page) |
 | `check_affordability`, `debt_payoff_scenario` | Answer "can I afford X" and "what if I pay extra" |
 | `add_transactions` | Keys in many transactions in one call, skipping duplicates |
 | `update_transaction` | Re-categorises or fixes a transaction |

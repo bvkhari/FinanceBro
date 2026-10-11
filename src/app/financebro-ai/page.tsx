@@ -768,7 +768,7 @@ function ChatMessageBubble({
   return (
     <div className={`flex flex-col items-start gap-2 animate-rise ${grouped ? "" : "pt-2"}`}>
       <div className="tabular max-w-[85%] whitespace-pre-line rounded-[1.25rem] rounded-bl-md bg-gray/12 px-3.5 py-2 text-body text-label">
-        {message.content}
+        <WithReportLinks text={message.content} />
       </div>
 
       {message.transactionPreview && (
@@ -866,9 +866,35 @@ function TransactionPreviewCard({
   );
 }
 
+const REPORT_LINK = /((?:https?:\/\/[^\s/]+)?\/reports\?[^\s)\]>"']+)/g;
+
+/** Report links from generate_report become an "Open report" button that opens in the app. */
+function WithReportLinks({ text }: { text: string }) {
+  const parts = text.split(REPORT_LINK);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (i % 2 === 0) return part;
+        const href = part.replace(/^https?:\/\/[^/]+/, "");
+        return (
+          <Link
+            key={i}
+            href={href}
+            className="press my-1 inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-subhead font-medium text-white"
+          >
+            <FileText className="h-4 w-4" />
+            Open report
+          </Link>
+        );
+      })}
+    </>
+  );
+}
+
 /** Agents write light markdown; the chat bubble shows plain text. */
 function plainText(text: string): string {
   return text
+    .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, "$2") // markdown links: keep the URL so report links become buttons
     .replace(/\*\*(.+?)\*\*/g, "$1")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^\s*[*]\s+/gm, "- ")

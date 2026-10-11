@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Printer } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { useFinance } from "@/lib/FinanceContext";
@@ -32,11 +32,23 @@ const TITLES: Record<Kind, string> = {
 };
 
 export default function ReportsPage() {
-  const { mode, profile, transactions, commitments, balances } = useFinance();
+  const { mode, setMode, profile, transactions, commitments, balances } = useFinance();
   const { today, debts } = useDebtView();
   const [kind, setKind] = useState<Kind>("monthly");
   const months = useMemo(() => reportMonths(transactions, today), [transactions, today]);
   const [month, setMonth] = useState(today.slice(0, 7));
+
+  // Links from the agent open a specific report: /reports?kind=spending&month=2026-09&mode=business
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const k = q.get("kind");
+    if (k === "monthly" || k === "spending" || k === "debts") setKind(k);
+    const m = q.get("month");
+    if (m && /^\d{4}-\d{2}$/.test(m)) setMonth(m);
+    const md = q.get("mode");
+    if (md === "individual" || md === "business") setMode(md);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const idx = Math.max(0, months.indexOf(month));
 
   const summary = useMemo(() => monthlySummary(transactions, balances[mode], commitments, month), [transactions, balances, mode, commitments, month]);

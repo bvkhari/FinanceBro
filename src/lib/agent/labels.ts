@@ -5,6 +5,7 @@ export const TOOL_LABELS: Record<string, string> = {
   list_debts: "Looked up debts",
   list_payments_due: "Checked payments due",
   monthly_report: "Built monthly report",
+  generate_report: "Generated report",
   check_affordability: "Checked affordability",
   debt_payoff_scenario: "Ran payoff scenario",
   add_transactions: "Added transactions",

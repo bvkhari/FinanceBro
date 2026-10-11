@@ -51,6 +51,9 @@ If the user doesn't say which profile, ask once, then keep using that one for th
    - What to check next week.
 4. Ask whether to apply it. If the user agrees, call `set_budgets`.
 
+### Reports
+If the user wants a report, statement or summary to keep, share, download or print, call `generate_report` (`monthly`, `spending` or `debts`, plus the month). Give 2–3 headline figures and the report's `url`. There they can download CSV or save it as a PDF.
+
 ### Housekeeping
 `get_snapshot` lists possible duplicates and uncategorised transactions. Point them out and offer to fix them.
 

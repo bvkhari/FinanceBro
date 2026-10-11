@@ -28,7 +28,7 @@ import { netCash, cashFlow } from "../cashflow";
 import { safeToSpend } from "../safeToSpend";
 import { buildPayments, debtOverview, extraPaymentScenario, filterPayments, type PaymentFilter } from "../debt/payments";
 import { generateSchedule, isValidDate } from "../debt/schedule";
-import { monthlySummary } from "../reports";
+import { debtSchedule, monthLabel, monthlySummary, reportMonths, spendingByCategory } from "../reports";
 import { BILL_CATEGORIES, TRANSACTION_CATEGORIES, spendingCategories } from "../categories";
 import { BUSINESS_DEBT_TYPES, PERSONAL_DEBT_TYPES } from "../debt/labels";
 
@@ -313,6 +313,80 @@ export const TOOLS: ToolDef[] = [
       if (!debt) throw new ToolInputError("No debt with that id on this profile. Call list_debts.");
       const s = extraPaymentScenario(debt, money(a, "extra")!, ctx.today);
       return { summary: `${debt.name}: ${rm(s.extra)} extra leaves ${rm(s.outstandingAfter)}.`, data: { debt: debt.name, ...s } };
+    },
+  },
+
+  {
+    name: "generate_report",
+    description:
+      "Create a report with FinanceBro's report generator and get a link to open it. Reports: " +
+      "monthly (income, spending, cash in and out, savings rate, biggest expenses), spending (by category, vs the month before), " +
+      "debts (every active debt and each payment still to make, month by month). On the report page the user can download CSV or save it as a PDF. " +
+      "Give the user the link exactly as returned.",
+    inputSchema: obj(
+      {
+        mode: MODE,
+        kind: { type: "string", enum: ["monthly", "spending", "debts"] },
+        month: { type: "string", description: "YYYY-MM for monthly and spending, default this month. Not used for debts." },
+      },
+      ["mode", "kind"]
+    ),
+    write: false,
+    async run(a) {
+      const mode = modeOf(a);
+      const ctx = await load(mode);
+      const kind = oneOf(a, "kind", ["monthly", "spending", "debts"] as const);
+      const months = reportMonths(ctx.transactions, ctx.today);
+      const month = (a.month as string | undefined) ?? ctx.today.slice(0, 7);
+      if (kind !== "debts" && !months.includes(month)) {
+        throw new ToolInputError(`No report for "${month}". Months with records: ${months.join(", ")}.`);
+      }
+      const params = new URLSearchParams({ kind, mode, ...(kind === "debts" ? {} : { month }) });
+      const link = `/reports?${params}`;
+      const base = process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "");
+      const meta = { profile: ctx.profile.displayName, link, url: base ? `${base}${link}` : undefined, actions: "On the report: CSV download, Save as PDF" };
+
+      if (kind === "monthly") {
+        const s = monthlySummary(ctx.transactions, ctx.balance, ctx.commitments, month);
+        return {
+          summary: `Monthly summary for ${monthLabel(month)}: income ${rm(s.income)}, spending ${rm(s.spending)}.`,
+          data: {
+            ...meta,
+            title: `Monthly summary · ${monthLabel(month)}`,
+            highlights: {
+              openingCash: s.openingCash, income: s.income, spending: s.spending, cashSpending: s.cashSpending,
+              spentOnCredit: s.spentOnCredit, debtRepayments: s.debtRepayments, interestFees: s.interestFees,
+              closingCash: s.closingCash, net: s.net, savingsRatePct: s.savingsRate, previousMonthSpending: s.previousSpending,
+              topCategories: s.categories.slice(0, 3).map((c) => ({ category: c.category, amount: c.amount, sharePct: c.share })),
+            },
+          },
+        };
+      }
+      if (kind === "spending") {
+        const rows = spendingByCategory(ctx.transactions, month);
+        const total = rows.reduce((t, r) => t + cents(r.amount), 0) / 100;
+        return {
+          summary: `Spending by category for ${monthLabel(month)}: ${rm(total)} across ${rows.filter((r) => r.amount > 0).length} categories.`,
+          data: {
+            ...meta,
+            title: `Spending by category · ${monthLabel(month)}`,
+            total,
+            categories: rows.map((r) => ({ category: r.category, amount: r.amount, sharePct: r.share, items: r.count, lastMonth: r.previous })),
+          },
+        };
+      }
+      const r = debtSchedule(ctx.debts, ctx.today);
+      return {
+        summary: `Debt schedule: ${rm(r.totalOutstanding)} owed on ${r.debts.length} debts.`,
+        data: {
+          ...meta,
+          title: `Debt schedule · as of ${ctx.today}`,
+          totalOutstanding: r.totalOutstanding,
+          unscheduled: r.unscheduled,
+          debts: r.debts.map((d) => ({ name: d.name, outstanding: d.outstanding, nextDue: d.nextDue, finalDue: d.finalDue, instalmentsLeft: d.instalmentsLeft })),
+          nextMonths: r.months.slice(0, 3).map((m) => ({ month: m.month, stillToPay: m.total })),
+        },
+      };
     },
   },
 

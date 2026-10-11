@@ -357,6 +357,7 @@ export const TOOLS: ToolDef[] = [
               openingCash: s.openingCash, income: s.income, spending: s.spending, cashSpending: s.cashSpending,
               spentOnCredit: s.spentOnCredit, debtRepayments: s.debtRepayments, interestFees: s.interestFees,
               closingCash: s.closingCash, net: s.net, savingsRatePct: s.savingsRate, previousMonthSpending: s.previousSpending,
+              spendingChangeVsPreviousMonth: (cents(s.spending) - cents(s.previousSpending)) / 100,
               topCategories: s.categories.slice(0, 3).map((c) => ({ category: c.category, amount: c.amount, sharePct: c.share })),
             },
           },
@@ -371,7 +372,10 @@ export const TOOLS: ToolDef[] = [
             ...meta,
             title: `Spending by category · ${monthLabel(month)}`,
             total,
-            categories: rows.map((r) => ({ category: r.category, amount: r.amount, sharePct: r.share, items: r.count, lastMonth: r.previous })),
+            categories: rows.map((r) => ({
+              category: r.category, amount: r.amount, sharePct: r.share, items: r.count, lastMonth: r.previous,
+              changeVsLastMonth: (cents(r.amount) - cents(r.previous)) / 100,
+            })),
           },
         };
       }

@@ -131,7 +131,8 @@ tx(K, d(10, 6), "expense", 200, "Marketing", "Meta ads", "bank");
 const S = STUDENT_ID;
 
 // Aina's amounts are whole ringgit and her monthly totals are round, so the pitch numbers are easy
-// to follow: September spending RM1,300 (RM1,000 cash + RM300 Shopee PayLater), income RM1,000.
+// to follow: September income RM1,000, cash spending RM1,000. The app shows only her PayLater plans;
+// these transactions are what her cash balance is built from.
 const foodSpots = ["Mamak Bistro", "Kafe Fakulti", "GrabFood", "Tealive", "Nasi Kandar Pelita", "7-Eleven", "FamilyMart"];
 function studentMonth(m, lastDay, foodTotal, transportTotal) {
   const start = txns.length;
@@ -185,9 +186,7 @@ const commitments = [
   { profile_id: K, name: "Shoplot rent", kind: "rent", amount: 3200, due_date: d(10, 15), recurrence: "monthly" },
   { profile_id: K, name: "TNB electricity", kind: "bill", amount: 600, due_date: d(10, 22), recurrence: "monthly" },
   { profile_id: K, name: "Unifi Business", kind: "bill", amount: 200, due_date: d(10, 7), recurrence: "monthly", status: "overdue" },
-  // Student
-  { profile_id: S, name: "Room rent share", kind: "rent", amount: 450, due_date: d(10, 11), recurrence: "monthly" },
-  { profile_id: S, name: "CelcomDigi postpaid", kind: "bill", amount: 50, due_date: d(10, 13), recurrence: "monthly" },
+  // The student has none: the app tracks PayLater only and doesn't load bills.
 ];
 
 const income = [
@@ -207,8 +206,8 @@ const monthly = (amount, repayment, first) =>
 const once = (amount, due) => generateSchedule({ amount, frequency: "one_time", firstDueDate: due });
 
 const debts = [
-  // Aina — three BNPL apps, one plan each. The story: RM760 still owed, RM480 due
-  // this month, and TikTok's 5 Oct instalment is already overdue.
+  // Aina — four BNPL apps, one plan each. The story: RM940 still owed, RM540 due
+  // this month, TikTok's 5 Oct instalment is already overdue and Grab's is due on 12 Oct.
   { id: debtId(1), profile_id: S, name: "Shopee PayLater", debt_type: "bnpl", original_amount: 300, repayment_amount: 100,
     frequency: "monthly", schedule: monthly(300, 100, d(10, 15)), notes: "Wireless earbuds, RM100 × 3 months",
     start_date: d(9, 15), end_date: d(12, 15),
@@ -221,6 +220,10 @@ const debts = [
     frequency: "monthly", schedule: monthly(900, 300, "2026-08-20"), paid: ["2026-08-20", d(9, 20)],
     notes: "Phone, 3 payments of RM300 (first paid at checkout)", start_date: "2026-08-20", end_date: d(10, 20),
     purchase: { txn_date: "2026-08-20", category: "Shopping", note: "Phone (Atome, 3 payments)" } },
+  { id: debtId(4), profile_id: S, name: "Grab PayLater", debt_type: "bnpl", original_amount: 180, repayment_amount: 60,
+    frequency: "monthly", schedule: monthly(180, 60, d(10, 12)), notes: "Bluetooth speaker from GrabMart, RM60 × 3 months",
+    start_date: d(9, 12), end_date: d(12, 12),
+    purchase: { txn_date: d(9, 12), category: "Shopping", note: "Bluetooth speaker (Grab PayLater)" } },
   // Kopi Senja — one supplier invoice due before the next payout, a card statement, a bank loan.
   // August's invoice and statement were paid in September, so they show as paid off.
   { id: debtId(14), profile_id: K, name: "Kopi Bumi Roasters", debt_type: "supplier_invoice", original_amount: 3300,

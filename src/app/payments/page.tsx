@@ -17,41 +17,28 @@ import { Input, Select, TextArea } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { MoneyCard } from "@/components/ui/MoneyCard";
-import { AddPicker, AddKind } from "@/components/AddPicker";
-import { BillsSection } from "@/components/bills/BillsSection";
 import { Segmented } from "@/components/ui/Segmented";
 import { formatDate, formatDateShort, formatRM, todayISO } from "@/lib/utils";
-import { Debt, DebtInstalment, DebtType } from "@/lib/types";
-import {
-  DEBT_TYPE_LABELS,
-  FREQUENCY_LABELS,
-  INSTALMENT_STATUS_STYLE,
-  debtTypesFor,
-} from "@/lib/debt/labels";
+import { Debt, DebtInstalment } from "@/lib/types";
+import { BNPL_PROVIDERS, FREQUENCY_LABELS, INSTALMENT_STATUS_STYLE } from "@/lib/debt/labels";
 import { PaymentModal, PaymentTarget } from "@/components/debt/PaymentModal";
 import { CreditorGroups } from "@/components/debt/CreditorGroups";
 import { useDebtView } from "@/lib/debt/useDebtView";
 import { EditInstalmentModal, ExtendScheduleModal, RescheduleModal } from "@/components/debt/ScheduleModals";
 import { ScheduleDraft, ScheduleEditor, draftRepayment, emptyDraft, previewSchedule } from "@/components/debt/ScheduleEditor";
-import { spendingCategories } from "@/lib/categories";
 import { downloadCsv } from "@/lib/csv";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { PaymentItem, addDays, balanceHistory, countdown, dueWithin, extraPaymentScenario, groupByCreditor, payoffSummary, totalDue } from "@/lib/debt/payments";
 import { toCents } from "@/lib/debt/schedule";
 
 type View = "active" | "paid_off" | "all";
-type Section = "debts" | "bills";
 type Range = 7 | 30;
 
 export default function PaymentsPage() {
-  const { mode, markCommitmentPaid } = useFinance();
   const { today, debts, payments, overview } = useDebtView();
-  const [section, setSection] = useState<Section>("debts");
-  const [picking, setPicking] = useState(false);
-  const [addingBill, setAddingBill] = useState(false);
   const [range, setRange] = useState<Range>(30);
   const [view, setView] = useState<View>("active");
-  const [sort, setSort] = useState<"due" | "interest">("due");
+  const [sort, setSort] = useState<"due" | "owed">("due");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Debt | null>(null);
@@ -67,53 +54,33 @@ export default function PaymentsPage() {
     setFlash(msg);
   };
 
-  // Deep links: ?section=bills, ?range=7, ?add=debt|bill (from the dashboard's Add picker).
+  // Deep links: ?range=7, ?add=debt (from the dashboard's quick actions).
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    if (q.get("section") === "bills" || q.get("add") === "bill") setSection("bills");
     if (q.get("range") === "7") setRange(7);
     if (q.get("add") === "debt") setShowAdd(true);
-    if (q.get("add") === "bill") setAddingBill(true);
     if (q.toString()) window.history.replaceState(null, "", window.location.pathname);
   }, []);
-
-  // Messages and open rows belong to one view; clear them when switching.
-  useEffect(() => {
-    setFlash(null);
-    setExpanded(null);
-  }, [mode]);
 
   const visible = useMemo(() => {
     const list = debts.filter((d) => view === "all" || d.status === view);
     const due = (d: Debt) => d.nextInstalment?.dueDate ?? "9999";
-    // Highest known rate first; unknown rates go last, so nothing is guessed.
     return list.sort((a, b) =>
-      sort === "interest" ? (b.interestRate ?? -1) - (a.interestRate ?? -1) || due(a).localeCompare(due(b)) : due(a).localeCompare(due(b))
+      sort === "owed" ? b.outstandingBalance - a.outstandingBalance || due(a).localeCompare(due(b)) : due(a).localeCompare(due(b))
     );
   }, [debts, view, sort]);
   // Everything due by today + range, overdue included, one group per creditor in the order to pay them.
   const shown = useMemo(() => dueWithin(payments, range, today), [payments, range, today]);
   const groups = useMemo(() => groupByCreditor(shown, debts), [shown, debts]);
 
-  const pick = (kind: AddKind) => {
-    setPicking(false);
-    if (kind === "debt") {
-      setSection("debts");
-      setShowAdd(true);
-    } else if (kind === "bill") {
-      setSection("bills");
-      setAddingBill(true);
-    }
-  };
-
   return (
     <div className="mx-auto max-w-4xl px-4 pb-10 pt-2 sm:px-6 lg:px-8">
       <PageHeader
-        title="Payments"
-        subtitle={`Every debt and bill ${mode === "business" ? "the business owes" : "you owe"}, in the order to pay them.`}
+        title="PayLater"
+        subtitle="Every Buy Now, Pay Later plan you owe, in the order to pay them."
         accessory={
-          <Button onClick={() => setPicking(true)} icon={<Plus className="h-4 w-4" strokeWidth={2.5} />} className="max-sm:w-full">
-            Add
+          <Button onClick={() => setShowAdd(true)} icon={<Plus className="h-4 w-4" strokeWidth={2.5} />} className="max-sm:w-full">
+            Add PayLater
           </Button>
         }
       />
@@ -164,10 +131,6 @@ export default function PaymentsPage() {
               onPay={(p) =>
                 setPaying({ payee: p.payee, instalmentId: p.instalmentId!, dueDate: p.dueDate, amount: p.amount, amountPaid: p.amountPaid, remaining: p.remaining })
               }
-              onMarkBillPaid={(p) => {
-                markCommitmentPaid(p.commitmentId!);
-                setFlash(`Marked ${p.payee} (${formatRM(p.remaining)}) as paid.`);
-              }}
             />
           )}
           <p className="mt-3 px-1 text-footnote text-label-3">
@@ -175,24 +138,9 @@ export default function PaymentsPage() {
           </p>
       </section>
 
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="px-1 text-title3">Reports</h2>
-        <Segmented<Section>
-          aria-label="Report"
-          className="w-full sm:w-56"
-          value={section}
-          onChange={setSection}
-          options={[
-            { value: "debts", label: "Debts" },
-            { value: "bills", label: "Bills" },
-          ]}
-        />
-      </div>
+      <h2 className="mb-4 px-1 text-title3">Your plans</h2>
 
-      {section === "bills" ? (
-        <BillsSection adding={addingBill} onAddingChange={setAddingBill} />
-      ) : (
-        <section aria-label="Debts">
+        <section aria-label="PayLater plans">
           <MoneyCard
             className="mb-5"
             label="Total outstanding"
@@ -225,7 +173,7 @@ export default function PaymentsPage() {
             onChange={setSort}
             options={[
               { value: "due", label: "Next due" },
-              { value: "interest", label: "Highest interest" },
+              { value: "owed", label: "Most owed" },
             ]}
           />
           </div>
@@ -233,8 +181,8 @@ export default function PaymentsPage() {
           {visible.length > 0 && (
             <div className="mb-3 flex items-start justify-between gap-3 px-1">
               <p className="text-footnote text-label-2">
-                <span className="font-semibold text-label">Owed by type: </span>
-                {byType(visible).map(([t, amt]) => `${t} ${formatRM(amt)}`).join(" · ")}
+                <span className="font-semibold text-label">Owed by provider: </span>
+                {byProvider(visible).map(([t, amt]) => `${t} ${formatRM(amt)}`).join(" · ")}
               </p>
               <Button variant="ghost" size="sm" icon={<Download className="h-3.5 w-3.5" />} onClick={() => exportDebts(visible)}>
                 CSV
@@ -244,8 +192,8 @@ export default function PaymentsPage() {
 
           {visible.length === 0 ? (
             <div className="rounded-2xl bg-surface px-6 py-14 text-center shadow-card">
-              <p className="text-headline">{view === "paid_off" ? "Nothing paid off yet" : "No debts here"}</p>
-              <p className="mt-1 text-subhead text-label-2">Add a debt to track what you owe and when to pay it.</p>
+              <p className="text-headline">{view === "paid_off" ? "Nothing paid off yet" : "No PayLater plans here"}</p>
+              <p className="mt-1 text-subhead text-label-2">Add a Shopee, TikTok, Grab or Atome plan to track what you owe and when to pay it.</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -267,9 +215,7 @@ export default function PaymentsPage() {
             </div>
           )}
         </section>
-      )}
 
-      <AddPicker isOpen={picking} onClose={() => setPicking(false)} onPick={pick} />
       <AddDebtModal isOpen={showAdd} onClose={() => setShowAdd(false)} onSaved={(msg) => setFlash(msg)} />
       <EditDebtModal debt={editing} onClose={() => setEditing(null)} />
       <EditInstalmentModal target={editingInstalment} onClose={() => setEditingInstalment(null)} onDone={done} />
@@ -287,30 +233,28 @@ export default function PaymentsPage() {
   );
 }
 
-/** Outstanding per debt type, largest first. */
-function byType(debts: Debt[]): [string, number][] {
+/** Outstanding per provider, largest first. */
+function byProvider(debts: Debt[]): [string, number][] {
   const m = new Map<string, number>();
-  for (const d of debts) m.set(DEBT_TYPE_LABELS[d.debtType], (m.get(DEBT_TYPE_LABELS[d.debtType]) ?? 0) + Math.round(d.outstandingBalance * 100));
-  return [...m].map(([t, c]) => [t, c / 100] as [string, number]).sort((a, b) => b[1] - a[1]);
+  for (const d of debts) m.set(d.name, (m.get(d.name) ?? 0) + Math.round(d.outstandingBalance * 100));
+  return [...m].map(([t, c]) => [t, c / 100] as [string, number]).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]);
 }
-
-const profileName = (m: Debt["mode"]) => (m === "business" ? "Business" : "Personal");
 
 function exportPayments(items: PaymentItem[], range: Range) {
   downloadCsv(`payments-next-${range}-days-${todayISO()}.csv`, [
-    ["Profile", "Pay to", "Category", "Frequency", "Due date", "Amount", "Paid", "Still due", "Paid on", "Status"],
+    ["Provider", "Frequency", "Due date", "Amount", "Paid", "Still due", "Paid on", "Status"],
     ...items.map((p) => [
-      profileName(p.mode), p.payee, p.category, p.frequency, p.dueDate, p.amount.toFixed(2), p.amountPaid.toFixed(2),
+      p.payee, p.frequency, p.dueDate, p.amount.toFixed(2), p.amountPaid.toFixed(2),
       p.remaining.toFixed(2), p.paidDate, INSTALMENT_STATUS_STYLE[p.status].label,
     ]),
   ]);
 }
 
 function exportDebts(debts: Debt[]) {
-  downloadCsv(`debts-${todayISO()}.csv`, [
-    ["Profile", "Owed to", "Type", "Reference", "Original", "Outstanding", "Repaid", "Repayment", "Frequency", "Interest % p.a.", "Next due", "Next amount", "Status"],
+  downloadCsv(`paylater-plans-${todayISO()}.csv`, [
+    ["Provider", "What was bought", "Order / reference", "Original", "Outstanding", "Repaid", "Repayment", "Frequency", "Interest % p.a.", "Next due", "Next amount", "Status"],
     ...debts.map((d) => [
-      profileName(d.mode), d.name, DEBT_TYPE_LABELS[d.debtType], d.referenceNo, d.originalAmount.toFixed(2), d.outstandingBalance.toFixed(2),
+      d.name, d.notes, d.referenceNo, d.originalAmount.toFixed(2), d.outstandingBalance.toFixed(2),
       ((Math.round(d.originalAmount * 100) - Math.round(d.outstandingBalance * 100)) / 100).toFixed(2), d.repaymentAmount?.toFixed(2),
       FREQUENCY_LABELS[d.frequency], d.interestRate, d.nextInstalment?.dueDate, d.nextInstalment?.remaining.toFixed(2), d.status.replace("_", " "),
     ]),
@@ -353,9 +297,6 @@ function DebtCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-headline text-label">{debt.name}</h3>
-            <span className="rounded-full bg-gray/12 px-2 py-0.5 text-caption font-medium text-label-2">
-              {DEBT_TYPE_LABELS[debt.debtType]}
-            </span>
             {debt.status === "paid_off" && (
               <span className="rounded-full bg-positive/12 px-2 py-0.5 text-caption font-semibold text-positive">Paid off</span>
             )}
@@ -371,6 +312,7 @@ function DebtCard({
               </span>
             )}
           </div>
+          {debt.notes && <p className="mt-0.5 truncate text-subhead text-label-2">{debt.notes}</p>}
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-footnote text-label-2">
             <span>{FREQUENCY_LABELS[debt.frequency].replace(" (enter each payment)", "")}</span>
             {debt.repaymentAmount !== undefined && <span>{formatRM(debt.repaymentAmount)} per instalment</span>}
@@ -433,7 +375,6 @@ function DebtCard({
               </Button>
             </div>
           )}
-          {debt.notes && <p className="mb-3 rounded-xl bg-gray/12 px-3 py-2 text-footnote text-label-2">{debt.notes}</p>}
 
           <div className="overflow-x-auto">
             <table className="tabular w-full min-w-[560px] text-footnote">
@@ -532,11 +473,10 @@ function BalanceHistory({ debt }: { debt: Debt }) {
 // ------------------------------------------------------------
 
 function ExtraPayment({ debt }: { debt: Debt }) {
-  const { mode, cashFlow } = useFinance();
+  const { cashFlow } = useFinance();
   const [extra, setExtra] = useState<number | null>(null);
   const s = extra ? extraPaymentScenario(debt, extra, todayISO()) : null;
-  // Projected cash is known for the active profile only.
-  const cashAfter = s && debt.mode === mode ? (Math.round(cashFlow.projectedCash * 100) - Math.round(s.extra * 100)) / 100 : undefined;
+  const cashAfter = s ? (Math.round(cashFlow.projectedCash * 100) - Math.round(s.extra * 100)) / 100 : undefined;
 
   return (
     <div className="mt-3 rounded-xl bg-gray/7 px-3 py-2.5 text-footnote">
@@ -580,51 +520,42 @@ function ExtraPayment({ debt }: { debt: Debt }) {
 }
 
 // ------------------------------------------------------------
-// Add a debt with its schedule
+// Add a PayLater plan with its schedule
 // ------------------------------------------------------------
 
-/** Debt types that usually come from buying something, so the purchase option starts ticked. */
-const PURCHASE_TYPES = new Set<DebtType>(["bnpl", "credit_card", "business_credit_card", "supplier_invoice"]);
+const OTHER = "__other";
 
 function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: () => void; onSaved: (msg: string) => void }) {
-  const { mode, addDebt } = useFinance();
-  const types = debtTypesFor(mode);
+  const { addDebt } = useFinance();
 
-  const [name, setName] = useState("");
-  const [debtType, setDebtType] = useState<DebtType>(types[0].value);
+  const [provider, setProvider] = useState<string>(BNPL_PROVIDERS[0]);
+  const [otherName, setOtherName] = useState("");
+  const [item, setItem] = useState("");
   const [original, setOriginal] = useState("");
   const [outstanding, setOutstanding] = useState("");
   const [draft, setDraft] = useState<ScheduleDraft>(emptyDraft());
   const [interestRate, setInterestRate] = useState("");
   const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
-  const [notes, setNotes] = useState("");
-  const [recordPurchase, setRecordPurchase] = useState(true);
-  const [purchaseCategory, setPurchaseCategory] = useState(spendingCategories(mode)[0]);
-  const [purchaseDate, setPurchaseDate] = useState(todayISO());
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setRecordPurchase(PURCHASE_TYPES.has(debtTypesFor(mode)[0].value));
-    setPurchaseCategory(spendingCategories(mode)[0]);
-    setPurchaseDate(todayISO());
-    setName("");
-    setDebtType(debtTypesFor(mode)[0].value);
+    setProvider(BNPL_PROVIDERS[0]);
+    setOtherName("");
+    setItem("");
     setOriginal("");
     setOutstanding("");
     setDraft(emptyDraft());
     setInterestRate("");
     setStartDate("");
-    setEndDate("");
     setReferenceNo("");
-    setNotes("");
     setError(null);
     setSaving(false);
-  }, [isOpen, mode]);
+  }, [isOpen]);
 
+  const name = provider === OTHER ? otherName.trim() : provider;
   const owed = parseFloat(outstanding || original);
 
   // The schedule is computed by the same generator the seed and tests use.
@@ -633,36 +564,32 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
   const submit = async () => {
     setError(null);
     const orig = parseFloat(original);
-    if (!name.trim()) return setError("Enter who you owe (provider, creditor or supplier).");
-    if (!(orig > 0)) return setError("Enter the original debt amount.");
-    if (!(owed > 0)) return setError("Enter the outstanding balance.");
-    if (toCents(owed) > toCents(orig)) return setError("The outstanding balance can't be more than the original amount.");
+    if (!name) return setError("Enter the PayLater provider.");
+    if (!(orig > 0)) return setError("Enter the total you agreed to pay back.");
+    if (!(owed > 0)) return setError("Enter how much is still owed.");
+    if (toCents(owed) > toCents(orig)) return setError("What's still owed can't be more than the total.");
     if (!preview.schedule) return setError(preview.problem ?? "The repayment schedule is incomplete.");
     const rate = interestRate ? parseFloat(interestRate) : undefined;
     if (rate !== undefined && (isNaN(rate) || rate < 0)) return setError("Interest rate must be 0 or more, or left empty.");
-    if (startDate && endDate && endDate < startDate) return setError("The end date is before the start date.");
-    if (recordPurchase && !purchaseDate) return setError("Enter the date of the purchase.");
 
     setSaving(true);
     try {
       await addDebt(
         {
-          name: name.trim(),
-          debtType,
+          name,
+          debtType: "bnpl",
           originalAmount: orig,
           outstandingBalance: owed,
           repaymentAmount: draftRepayment(draft),
           frequency: draft.frequency,
           interestRate: rate,
           startDate: startDate || undefined,
-          endDate: endDate || undefined,
           referenceNo: referenceNo.trim() || undefined,
-          notes: notes.trim() || undefined,
-          purchase: recordPurchase ? { date: purchaseDate, category: purchaseCategory } : undefined,
+          notes: item.trim() || undefined,
         },
         preview.schedule
       );
-      onSaved(`Added ${name.trim()} with ${preview.schedule.length} scheduled payment${preview.schedule.length === 1 ? "" : "s"}.`);
+      onSaved(`Added ${name} with ${preview.schedule.length} instalment${preview.schedule.length === 1 ? "" : "s"}.`);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -671,80 +598,42 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={mode === "business" ? "Add business debt" : "Add personal debt"} size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title="Add a PayLater plan" size="lg">
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input
-            label={mode === "business" ? "Creditor or supplier" : "Provider or person"}
-            placeholder={mode === "business" ? "e.g. Kopi Bumi Roasters" : "e.g. Shopee PayLater"}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
           <Select
-            label="Debt type"
-            value={debtType}
-            onChange={(e) => {
-              const t = e.target.value as DebtType;
-              setDebtType(t);
-              setRecordPurchase(PURCHASE_TYPES.has(t));
-            }}
-            options={types}
+            label="Provider"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+            options={[...BNPL_PROVIDERS.map((p) => ({ value: p, label: p })), { value: OTHER, label: "Other" }]}
           />
-          <Input label="Original amount (RM)" type="number" step="0.01" min="0" value={original} onChange={(e) => setOriginal(e.target.value)} />
+          {provider === OTHER ? (
+            <Input label="Provider name" placeholder="e.g. Boost PayFlex" value={otherName} onChange={(e) => setOtherName(e.target.value)} />
+          ) : (
+            <Input label="What did you buy? (optional)" placeholder="e.g. Wireless earbuds" value={item} onChange={(e) => setItem(e.target.value)} />
+          )}
+          <Input label="Total to pay back (RM)" type="number" step="0.01" min="0" value={original} onChange={(e) => setOriginal(e.target.value)} />
           <Input
-            label="Outstanding balance (RM)"
+            label="Still owed (RM)"
             type="number"
             step="0.01"
             min="0"
-            placeholder={original || "Same as original"}
+            placeholder={original || "Same as total"}
             value={outstanding}
             onChange={(e) => setOutstanding(e.target.value)}
           />
         </div>
+        {provider === OTHER && (
+          <Input label="What did you buy? (optional)" placeholder="e.g. Wireless earbuds" value={item} onChange={(e) => setItem(e.target.value)} />
+        )}
 
         <ScheduleEditor draft={draft} onChange={setDraft} amount={owed} />
 
-        <div className="rounded-2xl bg-gray/7 p-4">
-          <label className="flex cursor-pointer items-start gap-3">
-            <input
-              type="checkbox"
-              checked={recordPurchase}
-              onChange={(e) => setRecordPurchase(e.target.checked)}
-              className="mt-0.5 h-5 w-5 rounded accent-[rgb(var(--accent))]"
-            />
-            <span>
-              <span className="block text-headline text-label">Record what was bought as an expense</span>
-              <span className="block text-footnote text-label-2">
-                Adds {original ? formatRM(parseFloat(original) || 0) : "the original amount"} as spending on the purchase date, marked
-                &quot;on credit&quot; so it doesn&apos;t reduce your cash. Repayments then reduce cash without counting the spending twice.
-                Leave this off for cash loans, or if you already recorded the purchase.
-              </span>
-            </span>
-          </label>
-          {recordPurchase && (
-            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Select
-                label="Spending category"
-                value={purchaseCategory}
-                onChange={(e) => setPurchaseCategory(e.target.value)}
-                options={spendingCategories(mode).map((c) => ({ value: c, label: c }))}
-              />
-              <Input label="Purchase date" type="date" max={todayISO()} value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
-            </div>
-          )}
-        </div>
-
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Input label="Interest rate (% p.a., optional)" type="number" step="0.01" min="0" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} />
-          <Input label="Start date (optional)" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <Input label="End date (optional)" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          <Input label="Purchase date (optional)" type="date" max={todayISO()} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <Input label="Order number (optional)" value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} />
         </div>
-        <Input
-          label={mode === "business" ? "Invoice or reference number (optional)" : "Reference number (optional)"}
-          value={referenceNo}
-          onChange={(e) => setReferenceNo(e.target.value)}
-        />
-        <TextArea label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
         {error && (
           <p className="flex items-start gap-1.5 rounded-xl bg-negative/12 px-3 py-2 text-footnote text-negative">
@@ -755,7 +644,7 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
 
         <div className="flex gap-2">
           <Button className="flex-1" onClick={submit} disabled={saving}>
-            {saving ? "Saving…" : "Add debt"}
+            {saving ? "Saving…" : "Add plan"}
           </Button>
           <Button variant="outline" className="flex-1" onClick={onClose} disabled={saving}>
             Cancel
@@ -773,7 +662,6 @@ function AddDebtModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
 function EditDebtModal({ debt, onClose }: { debt: Debt | null; onClose: () => void }) {
   const { updateDebt } = useFinance();
   const [name, setName] = useState("");
-  const [debtType, setDebtType] = useState<DebtType>("other_personal");
   const [interestRate, setInterestRate] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -785,7 +673,6 @@ function EditDebtModal({ debt, onClose }: { debt: Debt | null; onClose: () => vo
   useEffect(() => {
     if (!debt) return;
     setName(debt.name);
-    setDebtType(debt.debtType);
     setInterestRate(debt.interestRate?.toString() ?? "");
     setStartDate(debt.startDate ?? "");
     setEndDate(debt.endDate ?? "");
@@ -807,7 +694,6 @@ function EditDebtModal({ debt, onClose }: { debt: Debt | null; onClose: () => vo
     try {
       await updateDebt(debt.id, {
         name: name.trim(),
-        debtType,
         interestRate: rate ?? null,
         startDate,
         endDate,
@@ -822,19 +708,16 @@ function EditDebtModal({ debt, onClose }: { debt: Debt | null; onClose: () => vo
   };
 
   return (
-    <Modal isOpen onClose={onClose} title="Edit debt details" size="md">
+    <Modal isOpen onClose={onClose} title="Edit plan details" size="md">
       <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <Select label="Debt type" value={debtType} onChange={(e) => setDebtType(e.target.value as DebtType)} options={debtTypesFor(debt.mode)} />
-        </div>
+        <Input label="Provider" value={name} onChange={(e) => setName(e.target.value)} />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Input label="Interest rate (% p.a.)" type="number" step="0.01" min="0" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} />
           <Input label="Start date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <Input label="End date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </div>
-        <Input label="Reference number" value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} />
-        <TextArea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <Input label="Order number" value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} />
+        <TextArea label="What was bought / notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
         <p className="flex items-start gap-1.5 text-footnote text-label-2">
           <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
           Amounts and the repayment schedule can't be changed here, so paid history stays intact.

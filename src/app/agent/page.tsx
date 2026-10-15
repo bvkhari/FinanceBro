@@ -8,20 +8,12 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { AlertCircle, Check, Copy, Pencil, Search, Bot } from "lucide-react";
 
-const PROMPTS = {
-  individual: [
-    "On my personal account: nasi lemak RM8, Grab RM12.40 to campus, Shopee phone case RM45.",
-    "I paid Shopee PayLater RM100 today.",
-    "Make me a plan to clear my PayLater debts before December, then set my budgets for it.",
-    "Can I afford a RM150 concert ticket this week?",
-  ],
-  business: [
-    "Kopi Senja: clean up our transactions. Fix the duplicates and the uncategorised ones.",
-    "Who do we have to pay in the next 7 days, and do we have the cash?",
-    "Can Kopi Senja afford a RM2,000 grinder this month?",
-    "Plan how we pay down the SME loan faster without missing supplier invoices.",
-  ],
-};
+const PROMPTS = [
+  "I bought a RM360 phone case set on Grab PayLater, RM120 × 3 months, first payment 25 Oct.",
+  "I paid Shopee PayLater RM100 today.",
+  "Make me a plan to clear all my PayLater before December.",
+  "Can I take a RM150 concert ticket on Atome this week?",
+];
 
 function useCopy() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -43,7 +35,7 @@ function timeAgo(iso: string) {
 }
 
 export default function AgentPage() {
-  const { profile, mode } = useFinance();
+  const { profile } = useFinance();
   const { items, loading, error } = useAgentActivity(profile?.id);
   const { copied, copy } = useCopy();
   const [origin, setOrigin] = useState("https://finance-bro-iota.vercel.app");
@@ -57,7 +49,7 @@ export default function AgentPage() {
           type: "stdio",
           command: "npx",
           args: ["-y", "mcp-remote", url],
-          description: "FinanceBro AI: balances, debts, budgets, data entry and plans",
+          description: "FinanceBro AI: PayLater (BNPL) plans, instalments, payments and payoff plans",
         },
       },
     },
@@ -115,7 +107,7 @@ export default function AgentPage() {
 
         <Card title="Try asking WorkBuddy" flush>
           <ul className="grouped">
-            {PROMPTS[mode].map((p) => (
+            {PROMPTS.map((p) => (
               <li key={p}>
                 <button onClick={() => copy(p, p)} className="press flex w-full items-center gap-3 px-4 py-3 text-left">
                   <span className="flex-1 text-body text-label">{p}</span>

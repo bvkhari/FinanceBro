@@ -12,11 +12,9 @@ import {
   DebtInstalment,
   DebtStatus,
   DebtType,
-  FinancialCommitment,
   FinancialProfile,
   IncomeScheduleItem,
   NewDebtInput,
-  NewTransaction,
   Transaction,
 } from "./types";
 import type { ScheduledInstalment } from "./debt/schedule";
@@ -24,7 +22,6 @@ import { todayISO } from "./utils";
 import { netCash } from "./cashflow";
 
 type DbMode = "student" | "business";
-type CommitmentKind = "bill" | "bnpl" | "loan" | "credit_card" | "supplier" | "rent" | "other";
 
 interface ProfileRow {
   id: string;
@@ -45,19 +42,6 @@ interface TransactionRow {
   note: string | null;
   flag: "duplicate" | "unusual" | null;
   cash_effect: boolean;
-  created_at: string;
-}
-
-interface CommitmentRow {
-  id: string;
-  name: string;
-  kind: CommitmentKind;
-  amount: string;
-  due_date: string;
-  recurrence: "none" | "monthly";
-  instalments_left: number | null;
-  outstanding_balance: string | null;
-  status: "upcoming" | "paid" | "overdue";
   created_at: string;
 }
 
@@ -95,54 +79,12 @@ interface DebtRow {
 export interface ProfileData {
   profile: FinancialProfile;
   transactions: Transaction[];
-  commitments: FinancialCommitment[];
   debts: Debt[];
   incomeSchedule: IncomeScheduleItem[];
 }
 
 const toAppMode = (m: DbMode): AppMode => (m === "student" ? "individual" : "business");
 const toDbMode = (m: AppMode): DbMode => (m === "individual" ? "student" : "business");
-
-function kindToCategory(kind: CommitmentKind, mode: AppMode): string {
-  if (mode === "business") {
-    return {
-      supplier: "Supplier Payments",
-      rent: "Business Rent",
-      loan: "Instalments",
-      bnpl: "Instalments",
-      credit_card: "Other Business Bills",
-      bill: "Other Business Bills",
-      other: "Other",
-    }[kind];
-  }
-  return {
-    rent: "Rent",
-    bnpl: "Instalments",
-    loan: "Instalments",
-    bill: "Utilities",
-    credit_card: "Other",
-    supplier: "Other",
-    other: "Other",
-  }[kind];
-}
-
-function categoryToKind(category: string, mode: AppMode): CommitmentKind {
-  switch (category) {
-    case "Supplier Payments":
-      return "supplier";
-    case "Rent":
-    case "Business Rent":
-      return "rent";
-    case "Instalments":
-      return mode === "individual" ? "bnpl" : "loan";
-    case "Internet":
-    case "Utilities":
-    case "Other Business Bills":
-      return "bill";
-    default:
-      return "other";
-  }
-}
 
 function mapTransaction(r: TransactionRow, mode: AppMode): Transaction {
   return {
@@ -156,22 +98,6 @@ function mapTransaction(r: TransactionRow, mode: AppMode): Transaction {
     description: r.note ?? undefined,
     flag: r.flag ?? undefined,
     cashEffect: r.cash_effect,
-    createdAt: r.created_at,
-  };
-}
-
-function mapCommitment(r: CommitmentRow, mode: AppMode): FinancialCommitment {
-  return {
-    id: r.id,
-    mode,
-    name: r.name,
-    amount: Number(r.amount),
-    dueDate: r.due_date,
-    category: kindToCategory(r.kind, mode),
-    status: r.status,
-    recurring: r.recurrence === "monthly",
-    instalmentsLeft: r.instalments_left ?? undefined,
-    outstandingBalance: r.outstanding_balance === null ? undefined : Number(r.outstanding_balance),
     createdAt: r.created_at,
   };
 }
@@ -235,19 +161,22 @@ function check<T>(res: { data: T | null; error: { message: string } | null }): T
   return res.data as T;
 }
 
-/** Loads the profile for a mode with its transactions (newest first) and commitments. */
-export async function fetchProfileData(mode: AppMode): Promise<ProfileData> {
+/**
+ * Loads the personal profile with its BNPL debts and the transactions behind its cash balance (newest first).
+ * The app is BNPL-only: other debt types, bills and the business profile stay in the database but aren't loaded.
+ */
+export async function fetchProfileData(): Promise<ProfileData> {
   if (supabaseConfigError) throw new Error(supabaseConfigError);
+  const mode: AppMode = "individual";
   const p = check(
     await supabase.from("profiles").select("*").eq("mode", toDbMode(mode)).order("created_at").limit(1).single()
   ) as ProfileRow;
 
-  const [txRows, cRows, budgetRows, debtRows, incomeRows] = await Promise.all([
+  const [txRows, debtRows, incomeRows] = await Promise.all([
     supabase.from("transactions").select("*").eq("profile_id", p.id)
       .order("txn_date", { ascending: false }).order("created_at", { ascending: false }),
-    supabase.from("commitments").select("*").eq("profile_id", p.id).order("due_date"),
-    supabase.from("budgets").select("month, limit_amount").eq("profile_id", p.id).order("month", { ascending: false }),
-    supabase.from("debts").select("*, debt_instalments(*), debt_payments(paid_date, principal_amount)").eq("profile_id", p.id).order("created_at"),
+    supabase.from("debts").select("*, debt_instalments(*), debt_payments(paid_date, principal_amount)")
+      .eq("profile_id", p.id).eq("debt_type", "bnpl").order("created_at"),
     supabase.from("income_schedule").select("id, source, expected_amount, expected_date, confirmed").eq("profile_id", p.id).order("expected_date"),
   ]).then((rs) => rs.map(check));
 
@@ -255,27 +184,18 @@ export async function fetchProfileData(mode: AppMode): Promise<ProfileData> {
   // Purchases on credit don't move cash, so they are left out of the balance.
   const net = netCash(transactions);
 
-  // Monthly budget = total of the latest budgeted month.
-  const budgets = budgetRows as { month: string; limit_amount: string }[];
-  const latestMonth = budgets[0]?.month;
-  const monthlyBudget = budgets
-    .filter((b) => b.month === latestMonth)
-    .reduce((sum, b) => sum + Number(b.limit_amount), 0);
-
   return {
     profile: {
       id: p.id,
       mode,
       displayName: p.name,
-      accountType: mode === "individual" ? "Student Account" : "Business Account",
+      accountType: "PayLater tracker",
       currency: p.currency === "MYR" ? "RM" : p.currency,
       // The DB holds today's balance; the UI adds the ledger on top of an opening balance.
       startingBalance: Math.round((Number(p.current_balance) - net) * 100) / 100,
-      monthlyBudget,
       createdAt: p.created_at,
     },
     transactions,
-    commitments: (cRows as CommitmentRow[]).map((r) => mapCommitment(r, mode)),
     debts: (debtRows as DebtRow[]).map((r) => mapDebt(r, mode, todayISO())),
     incomeSchedule: (incomeRows as { id: string; source: string; expected_amount: string; expected_date: string; confirmed: boolean }[]).map((r) => ({
       id: r.id,
@@ -285,84 +205,6 @@ export async function fetchProfileData(mode: AppMode): Promise<ProfileData> {
       confirmed: r.confirmed,
     })),
   };
-}
-
-function transactionFields(t: Partial<Transaction>) {
-  const row: Record<string, unknown> = {};
-  if (t.name !== undefined) row.merchant = t.name;
-  if (t.amount !== undefined) row.amount = t.amount;
-  if (t.type !== undefined) row.direction = t.type;
-  if (t.category !== undefined) row.category = t.category;
-  if (t.date !== undefined) row.txn_date = t.date;
-  if (t.description !== undefined) row.note = t.description || null;
-  return row;
-}
-
-export async function insertTransaction(profileId: string, mode: AppMode, t: NewTransaction, createdBy: "user" | "agent" = "user") {
-  const row = check(
-    await supabase.from("transactions")
-      .insert({ ...transactionFields(t), profile_id: profileId, source: "manual", created_by: createdBy })
-      .select().single()
-  ) as TransactionRow;
-  return mapTransaction(row, mode);
-}
-
-export async function updateTransactionRow(profileId: string, id: string, updates: Partial<Transaction>) {
-  check(await supabase.from("transactions").update(transactionFields(updates)).eq("profile_id", profileId).eq("id", id));
-}
-
-export async function deleteTransactionRow(profileId: string, id: string) {
-  check(await supabase.from("transactions").delete().eq("profile_id", profileId).eq("id", id));
-}
-
-function commitmentFields(c: Partial<FinancialCommitment>, mode: AppMode) {
-  const row: Record<string, unknown> = {};
-  if (c.name !== undefined) row.name = c.name;
-  if (c.amount !== undefined) row.amount = c.amount;
-  if (c.dueDate !== undefined) row.due_date = c.dueDate;
-  if (c.category !== undefined) row.kind = categoryToKind(c.category, mode);
-  if (c.status !== undefined) row.status = c.status;
-  if (c.recurring !== undefined) row.recurrence = c.recurring ? "monthly" : "none";
-  return row;
-}
-
-export async function insertCommitment(profileId: string, mode: AppMode, c: Omit<FinancialCommitment, "id" | "createdAt" | "mode">) {
-  const row = check(
-    await supabase.from("commitments").insert({ ...commitmentFields(c, mode), profile_id: profileId }).select().single()
-  ) as CommitmentRow;
-  return mapCommitment(row, mode);
-}
-
-export async function updateCommitmentRow(profileId: string, mode: AppMode, id: string, updates: Partial<FinancialCommitment>) {
-  check(await supabase.from("commitments").update(commitmentFields(updates, mode)).eq("profile_id", profileId).eq("id", id));
-}
-
-/**
- * Marks a bill paid and records the payment as one expense transaction.
- * The status update only succeeds once, so a double click can't record the
- * payment twice. Returns false when the bill was already paid.
- */
-export async function markCommitmentPaidOnce(profileId: string, mode: AppMode, c: FinancialCommitment, paidDate: string) {
-  const updated = check(
-    await supabase.from("commitments").update({ status: "paid" })
-      .eq("profile_id", profileId).eq("id", c.id).neq("status", "paid").select("id")
-  ) as { id: string }[];
-  if (updated.length === 0) return false;
-  try {
-    await insertTransaction(profileId, mode, {
-      name: c.name,
-      amount: c.amount,
-      type: "expense",
-      category: c.category,
-      date: paidDate,
-      description: `Payment for ${c.name}`,
-    });
-  } catch (e) {
-    // Put the status back so the bill doesn't look paid without a payment record.
-    await supabase.from("commitments").update({ status: c.status }).eq("profile_id", profileId).eq("id", c.id);
-    throw e;
-  }
-  return true;
 }
 
 // ---------- debts ----------
@@ -492,16 +334,6 @@ export async function fetchBudgetLines(profileId: string, month: string) {
   };
 }
 
-/** Creates or replaces one budget line (one per profile, month and category). */
-export async function upsertBudget(profileId: string, month: string, b: Omit<BudgetLine, "createdBy">, createdBy: "user" | "agent" = "user") {
-  check(
-    await supabase.from("budgets").upsert(
-      { profile_id: profileId, month, category: b.category, limit_amount: b.limit, essential: b.essential, created_by: createdBy },
-      { onConflict: "profile_id,month,category" }
-    )
-  );
-}
-
 export type IncomeSource = "allowance" | "salary" | "PTPTN" | "sales" | "other";
 
 export async function insertExpectedIncome(profileId: string, i: { source: IncomeSource; expectedAmount: number; expectedDate: string; confirmed: boolean }) {
@@ -562,8 +394,6 @@ export function subscribeToProfile(profileId: string, onChange: () => void) {
   const channel = supabase
     .channel(`profile-${profileId}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "transactions", filter }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "commitments", filter }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "budgets", filter }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "debts", filter }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "debt_instalments", filter }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "income_schedule", filter }, onChange)

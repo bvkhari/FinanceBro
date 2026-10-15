@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// Bills are a report on /payments now.
+// Bills were dropped; FinanceBro tracks PayLater debts only.
 export default function CommitmentsRedirect() {
-  redirect("/payments?section=bills");
+  redirect("/payments");
 }

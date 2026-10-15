@@ -9,19 +9,17 @@ import { PaymentRows } from "./PaymentRows";
 /**
  * Who to pay, one card per creditor, already in priority order
  * (see `groupByCreditor`). Tap a creditor to see each payment.
- * With `onPay`, rows get the record-payment actions.
+ * With `onPay`, rows get the record-payment action.
  */
 export function CreditorGroups({
   groups,
   today,
   onPay,
-  onMarkBillPaid,
   openFirst = false,
 }: {
   groups: CreditorGroup[];
   today: string;
   onPay?: (item: PaymentItem) => void;
-  onMarkBillPaid?: (item: PaymentItem) => void;
   openFirst?: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(openFirst ? groups[0]?.creditor ?? null : null);
@@ -64,7 +62,7 @@ export function CreditorGroups({
             </button>
             {isOpen && (
               <div className="animate-fade shadow-[inset_0_0.5px_0_var(--separator)]">
-                <PaymentRows items={g.items} today={today} onPay={onPay} onMarkBillPaid={onMarkBillPaid} compact={!onPay} />
+                <PaymentRows items={g.items} today={today} onPay={onPay} compact={!onPay} />
               </div>
             )}
           </li>

@@ -10,30 +10,17 @@ import React, {
 } from "react";
 import {
   AppMode,
-  Transaction,
-  FinancialCommitment,
   FinancialProfile,
-  FinancialSummary,
-  Budget,
-  CategoryBreakdown,
-  IncomeExpenseData,
   AppNotification,
   Debt,
   DebtDetailsUpdate,
   DebtFrequency,
   NewDebtInput,
-  NewTransaction,
 } from "./types";
 import {
   ProfileData,
   fetchProfileData,
-  insertTransaction,
-  updateTransactionRow,
-  deleteTransactionRow,
-  insertCommitment,
-  updateCommitmentRow,
   subscribeToProfile,
-  markCommitmentPaidOnce,
   createDebt,
   updateDebtDetails,
   updateInstalment,
@@ -45,45 +32,27 @@ import {
 } from "./db";
 import type { ScheduledInstalment } from "./debt/schedule";
 import { buildPayments, countdown, daysBetween } from "./debt/payments";
-import { CashFlow, cashFlow, isSpending, netCash } from "./cashflow";
+import { CashFlow, cashFlow, netCash } from "./cashflow";
 import { todayISO, formatRM, formatDateShort } from "./utils";
-import { categoryColor } from "./categories";
 
 // ============================================================
 // FINANCE CONTEXT — Centralized state management
 // ============================================================
-// Supabase is the single source of truth. Both profiles are
-// loaded on mount; writes go to Supabase and the affected
-// profile is re-fetched. A Realtime subscription re-fetches
-// when anything else (e.g. the agent) changes the data.
+// Supabase is the single source of truth. The app tracks one
+// personal profile and its BNPL (PayLater) debts. Writes go to
+// Supabase and the profile is re-fetched. A Realtime subscription
+// re-fetches when anything else (e.g. the agent) changes the data.
 // ============================================================
 
 interface FinanceContextValue {
-  // Mode
+  /** Always "individual": the app has a single personal profile. */
   mode: AppMode;
-  setMode: (mode: AppMode) => void;
-
-  // Profile
   profile: FinancialProfile;
-
-  // Transactions
-  transactions: Transaction[];
-  addTransaction: (t: NewTransaction) => void;
-  updateTransaction: (id: string, updates: Partial<Transaction>) => void;
-  deleteTransaction: (id: string) => void;
-
-  // Commitments
-  commitments: FinancialCommitment[];
-  addCommitment: (c: Omit<FinancialCommitment, "id" | "createdAt" | "mode">) => void;
-  updateCommitment: (id: string, updates: Partial<FinancialCommitment>) => void;
-  markCommitmentPaid: (id: string) => void;
+  /** Today's cash balance. Only used to show whether upcoming instalments are covered. */
+  balance: number;
 
   // Debts — these return promises and throw, so forms can show the error
   debts: Debt[];
-  /** Both profiles' records, each tagged with its mode. Records stay separate. */
-  allDebts: Debt[];
-  allCommitments: FinancialCommitment[];
-  balances: Record<AppMode, number>;
   addDebt: (input: NewDebtInput, schedule: ScheduledInstalment[]) => Promise<void>;
   updateDebt: (id: string, details: DebtDetailsUpdate) => Promise<void>;
   recordPayment: (p: {
@@ -99,13 +68,8 @@ interface FinanceContextValue {
   addInstalments: (debtId: string, schedule: ScheduledInstalment[]) => Promise<number>;
   rescheduleDebt: (debtId: string, frequency: DebtFrequency, repaymentAmount: number | undefined, schedule: ScheduledInstalment[]) => Promise<number>;
 
-  // Computed values
-  summary: FinancialSummary;
-  /** This month's cash flow and the projection to month end, for the active profile. */
+  /** Cash now and the projection to month end after PayLater instalments due. */
   cashFlow: CashFlow;
-  budget: Budget;
-  categoryBreakdown: CategoryBreakdown[];
-  incomeExpenseData: IncomeExpenseData[];
 
   // Notifications
   notifications: AppNotification[];
@@ -124,145 +88,58 @@ function balanceOf(d?: ProfileData): number {
   return (Math.round(d.profile.startingBalance * 100) + Math.round(netCash(d.transactions) * 100)) / 100;
 }
 
-const MODE_KEY = "financebro-ai-mode";
-
-function loadMode(): AppMode {
-  try {
-    return localStorage.getItem(MODE_KEY) === "business" ? "business" : "individual";
-  } catch {
-    return "individual";
-  }
-}
+const mode: AppMode = "individual";
 
 export function FinanceProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeState] = useState<AppMode>("individual");
-  const [data, setData] = useState<Partial<Record<AppMode, ProfileData>>>({});
+  const [current, setCurrent] = useState<ProfileData | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
 
-  const reload = useCallback(async (m: AppMode) => {
+  const reload = useCallback(async () => {
+    setError(null);
     try {
-      const d = await fetchProfileData(m);
-      setData((prev) => ({ ...prev, [m]: d }));
+      setCurrent(await fetchProfileData());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
 
-  const reloadAll = useCallback(() => {
-    setError(null);
-    return Promise.all([reload("individual"), reload("business")]);
+  useEffect(() => {
+    reload();
   }, [reload]);
 
-  useEffect(() => {
-    setModeState(loadMode());
-    reloadAll();
-  }, [reloadAll]);
-
-  const setMode = useCallback((m: AppMode) => {
-    setModeState(m);
-    try {
-      localStorage.setItem(MODE_KEY, m);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const current = data[mode];
   const profileId = current?.profile.id;
 
-  // Live updates: re-fetch the active profile whenever its rows change.
+  // Live updates: re-fetch whenever the profile's rows change.
   useEffect(() => {
     if (!profileId) return;
     let timer: ReturnType<typeof setTimeout>;
     const unsubscribe = subscribeToProfile(profileId, () => {
       clearTimeout(timer);
-      timer = setTimeout(() => reload(mode), 300);
+      timer = setTimeout(reload, 300);
     });
     return () => {
       clearTimeout(timer);
       unsubscribe();
     };
-  }, [profileId, mode, reload]);
+  }, [profileId, reload]);
 
-  const transactions = useMemo(() => current?.transactions ?? [], [current]);
-  const commitments = useMemo(() => current?.commitments ?? [], [current]);
   const debts = useMemo(() => current?.debts ?? [], [current]);
-  const allDebts = useMemo(() => [...(data.individual?.debts ?? []), ...(data.business?.debts ?? [])], [data]);
-  const allCommitments = useMemo(
-    () => [...(data.individual?.commitments ?? []), ...(data.business?.commitments ?? [])],
-    [data]
-  );
-  const balances = useMemo(
-    () => ({ individual: balanceOf(data.individual), business: balanceOf(data.business) }),
-    [data]
-  );
+  const balance = useMemo(() => balanceOf(current), [current]);
 
   // === Service-layer functions (Supabase) ===
 
-  /** Runs a write against the active profile, then re-fetches it. */
-  const write = useCallback(
-    (fn: (profileId: string) => Promise<unknown>) => {
-      if (!profileId) return;
-      fn(profileId)
-        .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-        .finally(() => reload(mode));
-    },
-    [profileId, mode, reload]
-  );
-
-  const addTransaction = useCallback(
-    (t: NewTransaction) => write((pid) => insertTransaction(pid, mode, t)),
-    [write, mode]
-  );
-
-  const updateTransaction = useCallback(
-    (id: string, updates: Partial<Transaction>) => write((pid) => updateTransactionRow(pid, id, updates)),
-    [write]
-  );
-
-  const deleteTransaction = useCallback(
-    (id: string) => write((pid) => deleteTransactionRow(pid, id)),
-    [write]
-  );
-
-  const addCommitment = useCallback(
-    (c: Omit<FinancialCommitment, "id" | "createdAt" | "mode">) => write((pid) => insertCommitment(pid, mode, c)),
-    [write, mode]
-  );
-
-  const updateCommitment = useCallback(
-    (id: string, updates: Partial<FinancialCommitment>) => write((pid) => updateCommitmentRow(pid, mode, id, updates)),
-    [write, mode]
-  );
-
-  const markCommitmentPaid = useCallback(
-    (id: string) => {
-      // Look in both profiles, so the bill is paid on its own profile.
-      const owner = (["individual", "business"] as AppMode[]).find((m) => data[m]?.commitments.some((c) => c.id === id));
-      const d = owner && data[owner];
-      const commitment = d?.commitments.find((c) => c.id === id);
-      if (!owner || !d || !commitment) return;
-      // Record the payment the user made, once. Nothing moves money.
-      markCommitmentPaidOnce(d.profile.id, owner, commitment, todayISO())
-        .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-        .finally(() => reload(owner));
-    },
-    [data, reload]
-  );
-
-  /** Like `write`, but rethrows so the calling form can show the error. */
+  /** Runs a write, then re-fetches. Rethrows so the calling form can show the error. */
   const writeOrThrow = useCallback(
     async <T,>(fn: (profileId: string) => Promise<T>): Promise<T> => {
       if (!profileId) throw new Error("No active profile");
       try {
         return await fn(profileId);
       } finally {
-        // Reload both profiles, so every view picks up the change.
-        reloadAll();
+        reload();
       }
     },
-    [profileId, reloadAll]
+    [profileId, reload]
   );
 
   const addDebt = useCallback(
@@ -271,10 +148,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateDebt = useCallback(
-    (id: string, details: DebtDetailsUpdate) =>
-      // Use the debt's own profile, which may not be the active one.
-      writeOrThrow((pid) => updateDebtDetails(allDebts.find((d) => d.id === id)?.profileId ?? pid, id, details)),
-    [writeOrThrow, allDebts]
+    (id: string, details: DebtDetailsUpdate) => writeOrThrow((pid) => updateDebtDetails(pid, id, details)),
+    [writeOrThrow]
   );
 
   const editInstalment = useCallback(
@@ -297,12 +172,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     [writeOrThrow]
   );
 
-  // Monthly figures cover the current calendar month only.
-  const monthTransactions = useMemo(() => {
-    const month = todayISO().slice(0, 7);
-    return transactions.filter((t) => t.date.startsWith(month));
-  }, [transactions]);
-
   const profile: FinancialProfile = current?.profile ?? {
     id: "",
     mode,
@@ -310,97 +179,20 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     accountType: "",
     currency: "RM",
     startingBalance: 0,
-    monthlyBudget: 0,
     createdAt: "",
   };
 
   // === Cash flow (see lib/cashflow.ts for the rules) ===
   const today = todayISO();
-  const payments = useMemo(() => buildPayments(debts, commitments, today), [debts, commitments, today]);
+  const payments = useMemo(() => buildPayments(debts, [], today), [debts, today]);
   const cash: CashFlow = useMemo(
-    () => cashFlow({ transactions, balance: balances[mode], payments, incomeSchedule: current?.incomeSchedule ?? [], today }),
-    [transactions, balances, mode, payments, current, today]
+    () => cashFlow({ transactions: current?.transactions ?? [], balance, payments, incomeSchedule: current?.incomeSchedule ?? [], today }),
+    [current, balance, payments, today]
   );
-
-  // === Computed financial summary ===
-  const summary: FinancialSummary = useMemo(() => {
-    const total = (list: Transaction[]) => list.reduce((s, t) => s + Math.round(t.amount * 100), 0) / 100;
-    const totalIncome = total(monthTransactions.filter((t) => t.type === "income"));
-    // Spending: repayments excluded (not an expense), purchases on credit included.
-    const totalExpenses = total(monthTransactions.filter(isSpending));
-
-    // Only what is due by the end of the month, never the whole outstanding debt.
-    const upcomingCommitments = (Math.round(cash.billsDue * 100) + Math.round(cash.debtRepaymentsDue * 100)) / 100;
-    const currentBalance = cash.availableCash;
-
-    return {
-      mode,
-      currentBalance,
-      totalMonthlyIncome: totalIncome,
-      totalMonthlyExpenses: totalExpenses,
-      upcomingCommitments,
-      budgetRemaining: Math.max(0, profile.monthlyBudget - totalExpenses),
-      projectedRemainingBalance: (Math.round(currentBalance * 100) - Math.round(upcomingCommitments * 100)) / 100,
-    };
-  }, [monthTransactions, cash, profile.monthlyBudget, mode]);
-
-  // === Budget for weekly/monthly ===
-  const budget: Budget = useMemo(() => {
-    const expenses = summary.totalMonthlyExpenses;
-    const monthlyBudget = profile.monthlyBudget;
-    return {
-      mode,
-      period: "monthly",
-      totalBudget: monthlyBudget,
-      spent: expenses,
-      remaining: Math.max(0, monthlyBudget - expenses),
-      percentageUsed: monthlyBudget > 0 ? Math.round((expenses / monthlyBudget) * 100) : 0,
-    };
-  }, [summary.totalMonthlyExpenses, profile.monthlyBudget, mode]);
-
-  // === Category breakdown for charts ===
-  const categoryBreakdown: CategoryBreakdown[] = useMemo(() => {
-    const expenseTransactions = monthTransactions.filter(isSpending);
-    const totalExpenses = expenseTransactions.reduce((sum, t) => sum + t.amount, 0);
-
-    const categoryMap = new Map<string, number>();
-    for (const t of expenseTransactions) {
-      categoryMap.set(t.category, (categoryMap.get(t.category) || 0) + t.amount);
-    }
-
-    return Array.from(categoryMap.entries())
-      .map(([category, amount]) => ({
-        category,
-        amount,
-        color: categoryColor(category),
-        percentage: totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0,
-      }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [monthTransactions]);
-
-  // === Income vs Expense data for charts ===
-  const incomeExpenseData: IncomeExpenseData[] = useMemo(() => {
-    const sorted = [...monthTransactions].sort((a, b) => a.date.localeCompare(b.date));
-    const map = new Map<string, { income: number; expenses: number }>();
-
-    for (const t of sorted) {
-      const dateLabel = new Date(t.date).toLocaleDateString("en-MY", { day: "numeric", month: "short" });
-      const existing = map.get(dateLabel) || { income: 0, expenses: 0 };
-      if (t.type === "income") existing.income += t.amount;
-      else if (isSpending(t)) existing.expenses += t.amount;
-      map.set(dateLabel, existing);
-    }
-
-    return Array.from(map.entries()).map(([label, vals]) => ({
-      label,
-      income: Math.round(vals.income * 100) / 100,
-      expenses: Math.round(vals.expenses * 100) / 100,
-    }));
-  }, [monthTransactions]);
 
   // === Notifications (derived from the data) ===
   const notifications: AppNotification[] = useMemo(() => {
-    // In-app reminders for debt instalments and bills: overdue, or due within 3 days.
+    // In-app reminders for PayLater instalments: overdue, or due within 3 days.
     const list: Omit<AppNotification, "read">[] = [];
     for (const p of payments) {
       if (p.remaining <= 0) continue;
@@ -409,24 +201,14 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       const overdue = p.status === "overdue";
       list.push({
         id: `${overdue ? "overdue" : "due"}-${p.key}`,
-        title: overdue ? "Overdue payment" : "Payment due soon",
-        message: `${p.payee}: ${formatRM(p.remaining)}${p.kind === "debt" ? ` (${p.category})` : ""}, ${countdown(p.dueDate, today, p.status).toLowerCase()} (${formatDateShort(p.dueDate)}).`,
+        title: overdue ? "Overdue instalment" : "Instalment due soon",
+        message: `${p.payee}: ${formatRM(p.remaining)}, ${countdown(p.dueDate, today, p.status).toLowerCase()} (${formatDateShort(p.dueDate)}).`,
         type: overdue ? "warning" : "info",
         timestamp: p.dueDate,
       });
     }
-    const uncategorised = transactions.filter((t) => t.category === "Uncategorised").length;
-    if (uncategorised > 0) {
-      list.push({
-        id: "uncategorised",
-        title: "Uncategorised Transactions",
-        message: `${uncategorised} transaction${uncategorised === 1 ? "" : "s"} need a category.`,
-        type: "info",
-        timestamp: todayISO(),
-      });
-    }
     return list.map((n) => ({ ...n, read: readIds.has(n.id) }));
-  }, [payments, today, transactions, readIds]);
+  }, [payments, today, readIds]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -436,25 +218,14 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   const resetData = useCallback(() => {
     setReadIds(new Set());
-    reloadAll();
-  }, [reloadAll]);
+    reload();
+  }, [reload]);
 
   const value: FinanceContextValue = {
     mode,
-    setMode,
     profile,
-    transactions,
-    addTransaction,
-    updateTransaction,
-    deleteTransaction,
-    commitments,
-    addCommitment,
-    updateCommitment,
-    markCommitmentPaid,
+    balance,
     debts,
-    allDebts,
-    allCommitments,
-    balances,
     addDebt,
     updateDebt,
     recordPayment,
@@ -462,11 +233,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     cancelInstalment: cancelInstalmentAction,
     addInstalments: addInstalmentsAction,
     rescheduleDebt: rescheduleDebtAction,
-    summary,
     cashFlow: cash,
-    budget,
-    categoryBreakdown,
-    incomeExpenseData,
     notifications,
     unreadCount,
     markNotificationRead,
@@ -482,7 +249,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
               <p className="text-headline text-label">Couldn&apos;t load your data</p>
               <p className="text-subhead text-label-2">{error}</p>
               <button
-                onClick={reloadAll}
+                onClick={reload}
                 className="press mt-1 h-9 rounded-full bg-accent px-4 text-subhead font-semibold text-white"
               >
                 Try again

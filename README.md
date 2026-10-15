@@ -1,29 +1,28 @@
 # FinanceBro AI
 
-An AI finance agent for Malaysian university students and small-business owners. It tracks cash, spending, bills and debts in MYR, and tells you what is due, what you can safely spend, and how your debts pay down.
+A PayLater (Buy Now, Pay Later) tracker for Malaysian university students. It keeps every Shopee PayLater, TikTok PayLater, Grab PayLater and Atome plan in one place, in MYR, and tells you what's due, what's overdue, whether you can cover it, and how to clear it.
 
 Built in 24 hours at Hackerdorm (Track 2, WorkBuddy Agentic Solutions), starting 2026-10-10.
 
 - **Live app:** https://finance-bro-iota.vercel.app
-- **Two demo profiles**, switched from the top bar: **Aina Rahman** (student) and **Kopi Senja** (café). Both are fictional seed data.
+- **Demo profile:** **Aina Rahman**, a student with four PayLater plans. Fictional seed data.
 
 ## What it does
 
 | Page | What you get |
 |---|---|
-| **Dashboard** (`/`) | Debt workspace first: next payment, due in 7 days, due this month, overdue and outstanding debt, each split by creditor. Expenses tab with balance, cash flow and spending. |
-| **Payments** (`/payments`) | One "To pay" list for debt instalments and bills, grouped by creditor. Debts and Bills tabs, schedule editing, rescheduling and payment recording. |
-| **Reports** (`/reports`) | Monthly summary, spending by category and the debt schedule. |
-| **Transactions** (`/transactions`) | The ledger, with categories, edits and duplicate checks. |
-| **FinanceBro AI** (`/financebro-ai`) | Chat with the WorkBuddy agent. Its tool calls show as live steps. |
+| **Dashboard** (`/`) | What to pay in the next 30 and 7 days, what's overdue, total owed and the split by provider, who to pay first, and whether your cash covers the instalments due this month. |
+| **PayLater** (`/payments`) | One "To pay" list of instalments grouped by provider, every plan with its schedule, adding a plan, rescheduling, recording payments and "what if I pay extra". |
+| **Reports** (`/reports`) | The PayLater schedule: each plan and every instalment still to pay, month by month. CSV or PDF. |
+| **FinanceBro AI** (`/financebro-ai`) | Chat with the WorkBuddy agent. Attach a PayLater checkout or bill and it keys it in. Its tool calls show as live steps. |
 | **WorkBuddy Agent** (`/agent`) | Connector setup and a live feed of every tool call the agent makes. |
 
 ### Ground rules
 
+- **PayLater only.** No expense tracking, budgets, bills, cards or loans. The cash balance is kept only to show whether the instalments are covered.
 - **The LLM decides, code calculates.** Every RM figure comes from TypeScript or SQL, never from the model.
 - **Nothing moves money.** The app records payments you made. It never pays anyone.
-- **Every ringgit counts once.** A credit purchase is spending but not cash. A debt repayment is cash but not spending. Only interest and fees are both.
-- **Safe-to-spend** = balance + confirmed income before next payday − unpaid bills due before then − remaining essential budget − safety buffer.
+- **Month-end projection** = cash now + confirmed income − PayLater instalments due by month end (overdue included). Never the whole amount owed.
 
 ## The AI: WorkBuddy over MCP
 
@@ -33,7 +32,7 @@ FinanceBro has no LLM of its own. WorkBuddy (the track sponsor's agent) does the
 Browser ─► /api/chat ─► CodeBuddy / WorkBuddy engine ─► /api/mcp (FinanceBro tools) ─► Supabase
 ```
 
-- **`POST /api/mcp`** is a stateless MCP server. Tools live in `src/lib/agent/tools.ts`: reads (`get_snapshot`, `list_*`, `monthly_report`, `check_affordability`, `debt_payoff_scenario`) and writes (`add_transactions`, `update_transaction`, `set_budgets`, `add_bill`, `mark_bill_paid`, `add_debt`, `record_debt_payment`, `add_expected_income`).
+- **`POST /api/mcp`** is a stateless MCP server. Tools live in `src/lib/agent/tools.ts`: reads (`get_snapshot`, `list_debts`, `list_payments_due`, `check_affordability`, `debt_payoff_scenario`, `generate_report`) and writes (`add_debt`, `record_debt_payment`, `add_expected_income`).
 - **`POST /api/chat`** runs the CodeBuddy engine headless and streams its steps. In production it proxies to an always-on [agent server](agent-server/README.md). With no engine, the chat falls back to built-in keyword answers.
 - **Use it from the WorkBuddy desktop app:** see [workbuddy/README.md](workbuddy/README.md) for the connector and skill.
 
@@ -67,14 +66,14 @@ The chat needs a signed-in CodeBuddy CLI (`codebuddy` → `/login`) on the same 
 | `npx tsc --noEmit` | Typecheck |
 | `npm run build` | Production build |
 | `npm run db:migrate` | Applies `supabase/migrations/` to the linked project (needs a logged-in Supabase CLI) |
-| `npm run seed` | Regenerates `supabase/seed.sql` and resets both demo profiles (`-- --dry` writes the file only) |
+| `npm run seed` | Regenerates `supabase/seed.sql` and resets the demo data (`-- --dry` writes the file only) |
 
 ## Project layout
 
 ```
 src/app/            pages and API routes (api/mcp, api/chat)
 src/lib/db.ts       the only mapping between DB rows and UI types
-src/lib/debt/       pure schedule, payments and debt-answer logic
+src/lib/debt/       pure schedule, payments and PayLater-answer logic
 src/lib/agent/      MCP tools, agent instructions and the engine runner
 src/lib/cashflow.ts, safeToSpend.ts   the money maths
 supabase/           migrations and generated seed
@@ -86,9 +85,9 @@ tests/              Supabase integration tests
 
 ## Status
 
-Done: debt model with schedules and idempotent payments, Payments page, dashboard, reports, transactions, the WorkBuddy agent with MCP tools and live activity feed.
+Done: PayLater plans with schedules and idempotent payments, the PayLater page, dashboard, schedule report, and the WorkBuddy agent with MCP tools and live activity feed.
 
-Not built yet: Excel export with live formulas, `.ics` reminders, and safe-to-spend on the dashboard (only the agent tools use it so far). Progress is tracked in [TODO.md](TODO.md).
+The app used to also track expenses, budgets, bills and a business profile. Those tables (and the Kopi Senja café profile) are still in the database but nothing loads them. Progress before the switch is in [TODO.md](TODO.md).
 
 ## Branches
 

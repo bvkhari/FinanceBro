@@ -4,8 +4,6 @@ import { usePathname } from "next/navigation";
 import { Bell, RotateCcw } from "lucide-react";
 import { useFinance } from "@/lib/FinanceContext";
 import { useCallback, useEffect, useState } from "react";
-import { formatRM } from "@/lib/utils";
-import { Segmented } from "@/components/ui/Segmented";
 import { Popover } from "@/components/ui/Popover";
 import { pageTitles } from "./nav";
 
@@ -13,7 +11,7 @@ const dotColor = { warning: "bg-warning", success: "bg-positive", info: "bg-info
 
 export function TopNav() {
   const pathname = usePathname();
-  const { mode, setMode, profile, notifications, unreadCount, markNotificationRead, resetData } = useFinance();
+  const { profile, notifications, unreadCount, markNotificationRead, resetData } = useFinance();
   const [showNotifs, setShowNotifs] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -47,18 +45,6 @@ export function TopNav() {
         </p>
 
         <div className="flex shrink-0 items-center gap-2">
-          <Segmented
-            aria-label="Account mode"
-            size="sm"
-            className="w-40 sm:w-[11.5rem]"
-            value={mode}
-            onChange={setMode}
-            options={[
-              { value: "individual", label: "Individual" },
-              { value: "business", label: "Business" },
-            ]}
-          />
-
           <Popover
             open={showNotifs}
             onClose={closeNotifs}
@@ -131,8 +117,7 @@ export function TopNav() {
             </div>
             <dl className="grouped mx-3 rounded-xl bg-gray/7 text-subhead">
               {[
-                ["Mode", mode === "individual" ? "Individual" : "Business"],
-                ["Monthly budget", formatRM(profile.monthlyBudget)],
+                ["Tracking", "PayLater (BNPL)"],
                 ["Currency", profile.currency],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between px-3 py-2.5">

@@ -5,7 +5,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 
 export const metadata: Metadata = {
   title: "FinanceBro AI",
-  description: "Track spending, budgets and bills, and ask whether you can afford something before you buy it.",
+  description: "Track every Shopee, TikTok, Grab and Atome PayLater plan, see what is due, and check whether you can take on another one.",
 };
 
 export const viewport: Viewport = {

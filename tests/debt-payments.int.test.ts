@@ -13,7 +13,7 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const STUDENT = randomUUID();
-const BUSINESS = randomUUID();
+const REJECTED = randomUUID(); // a business profile the database must refuse
 
 describe.skipIf(!url || !key)("debt payments (database)", () => {
   let db: SupabaseClient;
@@ -22,13 +22,12 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
     db = createClient(url!, key!);
     const { error } = await db.from("profiles").insert([
       { id: STUDENT, name: "Vitest temp student", mode: "student", current_balance: 1000, created_at: "2099-01-01" },
-      { id: BUSINESS, name: "Vitest temp business", mode: "business", current_balance: 1000, created_at: "2099-01-01" },
     ]);
     if (error) throw error;
   });
 
   afterAll(async () => {
-    await db?.from("profiles").delete().in("id", [STUDENT, BUSINESS]);
+    await db?.from("profiles").delete().in("id", [STUDENT, REJECTED]);
   });
 
   async function createDebt(fields: Record<string, unknown>, schedule: { due_date: string; amount: number }[]) {
@@ -136,7 +135,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
 
   it("lets only one of two simultaneous payments through", async () => {
     const id = await createDebt(
-      { name: "Concurrent test", debt_type: "other_personal", original_amount: 80, frequency: "one_time" },
+      { name: "Concurrent test", debt_type: "bnpl", original_amount: 80, frequency: "one_time" },
       [{ due_date: "2026-11-01", amount: 80 }]
     );
     const [inst] = await instalments(id);
@@ -147,7 +146,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
 
   it("records interest and fees as an expense and only principal against the balance", async () => {
     const id = await createDebt(
-      { name: "Personal loan", debt_type: "personal_loan", original_amount: 1000, repayment_amount: 110, frequency: "monthly", interest_rate: 12 },
+      { name: "Personal loan", debt_type: "bnpl", original_amount: 1000, repayment_amount: 110, frequency: "monthly", interest_rate: 12 },
       generateSchedule({ amount: 1100, instalmentAmount: 110, frequency: "monthly", firstDueDate: "2026-10-05" })
     );
     const [first] = await instalments(id);
@@ -162,7 +161,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
 
   it("refuses payments that would make the balance negative or that make no sense", async () => {
     const id = await createDebt(
-      { name: "Mismatch", debt_type: "family_friend", original_amount: 100, outstanding_balance: 30, frequency: "irregular" },
+      { name: "Mismatch", debt_type: "bnpl", original_amount: 100, outstanding_balance: 30, frequency: "irregular" },
       [{ due_date: "2026-10-20", amount: 50 }]
     );
     const [inst] = await instalments(id);
@@ -174,7 +173,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
 
   it("adds new instalments without duplicating or touching existing ones", async () => {
     const id = await createDebt(
-      { name: "Card", debt_type: "credit_card", original_amount: 300, repayment_amount: 100, frequency: "monthly" },
+      { name: "Card", debt_type: "bnpl", original_amount: 300, repayment_amount: 100, frequency: "monthly" },
       generateSchedule({ amount: 200, instalmentAmount: 100, frequency: "monthly", firstDueDate: "2026-10-01" })
     );
     const [oct] = await instalments(id);
@@ -200,7 +199,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
   it("cancels unpaid instalments once the balance reaches zero", async () => {
     // Schedule (RM200) is larger than what is owed (RM100), e.g. a debt partly settled elsewhere
     const id = await createDebt(
-      { name: "Over-scheduled", debt_type: "other_personal", original_amount: 200, outstanding_balance: 100, frequency: "irregular" },
+      { name: "Over-scheduled", debt_type: "bnpl", original_amount: 200, outstanding_balance: 100, frequency: "irregular" },
       [{ due_date: "2026-10-20", amount: 100 }, { due_date: "2026-11-20", amount: 100 }]
     );
     const [first] = await instalments(id);
@@ -211,7 +210,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
 
   it("refuses payment dates in the future", async () => {
     const id = await createDebt(
-      { name: "Future date", debt_type: "other_personal", original_amount: 50, frequency: "one_time" },
+      { name: "Future date", debt_type: "bnpl", original_amount: 50, frequency: "one_time" },
       [{ due_date: "2026-10-20", amount: 50 }]
     );
     const [inst] = await instalments(id);
@@ -302,7 +301,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
 
     it("cancels an unpaid instalment and keeps it as history", async () => {
       const id = await createDebt(
-        { name: "Cancel test", debt_type: "family_friend", original_amount: 200, frequency: "irregular" },
+        { name: "Cancel test", debt_type: "bnpl", original_amount: 200, frequency: "irregular" },
         [{ due_date: "2026-10-25", amount: 80 }, { due_date: "2026-11-25", amount: 120 }]
       );
       const [first] = await instalments(id);
@@ -314,7 +313,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
 
     it("reschedules what's left without touching paid or partly paid instalments", async () => {
       const id = await createDebt(
-        { name: "Reschedule", debt_type: "personal_loan", original_amount: 400, repayment_amount: 100, frequency: "monthly" },
+        { name: "Reschedule", debt_type: "bnpl", original_amount: 400, repayment_amount: 100, frequency: "monthly" },
         generateSchedule({ amount: 400, instalmentAmount: 100, frequency: "monthly", firstDueDate: "2026-09-01" })
       );
       const [sep, oct] = await instalments(id);
@@ -336,7 +335,7 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
 
     it("refuses a new schedule that lands on a paid date, and changes nothing", async () => {
       const id = await createDebt(
-        { name: "Clash", debt_type: "personal_loan", original_amount: 200, repayment_amount: 100, frequency: "monthly" },
+        { name: "Clash", debt_type: "bnpl", original_amount: 200, repayment_amount: 100, frequency: "monthly" },
         generateSchedule({ amount: 200, instalmentAmount: 100, frequency: "monthly", firstDueDate: "2026-09-01" })
       );
       const [sep] = await instalments(id);
@@ -351,17 +350,14 @@ describe.skipIf(!url || !key)("debt payments (database)", () => {
     });
   });
 
-  it("keeps personal and business debt types on the right profile", async () => {
+  it("only accepts BNPL debts and student profiles", async () => {
     await expect(
-      createDebt({ name: "Wrong place", debt_type: "supplier_invoice", original_amount: 10, frequency: "one_time" }, [
+      createDebt({ name: "Maybank card", debt_type: "credit_card", original_amount: 10, frequency: "one_time" }, [
         { due_date: "2026-10-20", amount: 10 },
       ])
-    ).rejects.toMatchObject({ message: expect.stringMatching(/does not belong on a student profile/) });
+    ).rejects.toMatchObject({ message: expect.stringMatching(/debts_debt_type_check/) });
 
-    const { error } = await db.rpc("create_debt", {
-      p_debt: { profile_id: BUSINESS, name: "Supplier", debt_type: "supplier_invoice", original_amount: 10, frequency: "one_time", reference_no: "INV-1" },
-      p_instalments: [{ due_date: "2026-10-20", amount: 10 }],
-    });
-    expect(error).toBeNull();
+    const { error } = await db.from("profiles").insert({ id: REJECTED, name: "Vitest temp business", mode: "business", created_at: "2099-01-01" });
+    expect(error?.message).toMatch(/profiles_mode_check/);
   });
 });

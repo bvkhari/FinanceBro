@@ -87,7 +87,7 @@ tests/              Supabase integration tests
 
 Done: PayLater plans with schedules and idempotent payments, the PayLater page, dashboard, schedule report, and the WorkBuddy agent with MCP tools and live activity feed.
 
-The app used to also track expenses, budgets, bills and a business profile. Those tables (and the Kopi Senja café profile) are still in the database but nothing loads them. Progress before the switch is in [TODO.md](TODO.md).
+The app used to also track expenses, budgets, bills and a business profile. The `paylater_only` migration removed that data and those tables from Supabase. Progress before the switch is in [TODO.md](TODO.md).
 
 ## Branches
 

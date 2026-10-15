@@ -26,8 +26,6 @@ const transactions = [
   tx("2026-09-15", "income", 200, "Part-time income"),
   tx("2026-09-20", "income", 999, "Allowance", false), // not cash: ignored for monthly income
   tx("2026-10-02", "expense", 120.4, "Food"),
-  tx("2026-10-05", "expense", 50, "Food", false), // credit purchase still uses the food budget
-  tx("2026-10-06", "expense", 300, "Rent"),
 ];
 
 const base = {
@@ -48,21 +46,16 @@ describe("safeToSpend", () => {
         due("2026-10-25", 500), // due on the income date: after it, not before
         { ...due("2026-10-12", 70), remaining: 0, status: "paid" }, // paid: ignored
       ],
-      essentialBudgets: [
-        { category: "Food", limit: 400 }, // 400 − 170.40 spent = 229.60 left
-        { category: "Rent", limit: 300 }, // fully used
-      ],
     });
     expect(r.nextIncomeDate).toBe("2026-10-25");
     expect(r.daysUntilNextIncome).toBe(15);
     expect(r.confirmedIncomeBefore).toBe(0);
     expect(r.commitmentsDueBefore).toBe(130.5);
-    expect(r.remainingEssentialBudget).toBe(229.6);
     expect(r.monthlyIncome).toBe(1200);
     expect(r.safetyBuffer).toBe(120);
-    // 900 − 130.50 − 229.60 − 120
-    expect(r.safeToSpend).toBe(419.9);
-    expect(r.dailyAllowance).toBe(27.99);
+    // 900 − 130.50 − 120
+    expect(r.safeToSpend).toBe(649.5);
+    expect(r.dailyAllowance).toBe(43.3);
   });
 
   it("counts confirmed income due today but not unconfirmed income", () => {
@@ -70,7 +63,6 @@ describe("safeToSpend", () => {
       ...base,
       incomeSchedule: [income(TODAY, 50, true), income(TODAY, 80, false), income("2026-10-20", 1000, false)],
       payments: [],
-      essentialBudgets: [],
     });
     expect(r.nextIncomeDate).toBe("2026-10-20");
     expect(r.confirmedIncomeBefore).toBe(50);
@@ -78,7 +70,7 @@ describe("safeToSpend", () => {
   });
 
   it("runs to the end of the month when no income is scheduled, and can go negative", () => {
-    const r = safeToSpend({ ...base, balance: 100, incomeSchedule: [], payments: [due("2026-10-30", 250)], essentialBudgets: [] });
+    const r = safeToSpend({ ...base, balance: 100, incomeSchedule: [], payments: [due("2026-10-30", 250)] });
     expect(r.nextIncomeDate).toBe("2026-11-01");
     expect(r.nextIncomeSource).toBeUndefined();
     expect(r.daysUntilNextIncome).toBe(22);

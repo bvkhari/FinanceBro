@@ -11,12 +11,12 @@
 
 import {
   createDebt,
-  fetchBudgetLines,
   fetchProfileData,
+  fetchSafetyBufferPct,
   insertExpectedIncome,
   logAgentActivity,
-  profileIdFor,
   recordDebtPayment,
+  studentProfileId,
   type IncomeSource,
 } from "../db";
 import { netCash, cashFlow } from "../cashflow";
@@ -94,15 +94,12 @@ async function load() {
 }
 
 async function safeToSpendFor(ctx: Awaited<ReturnType<typeof load>>) {
-  const month = `${ctx.today.slice(0, 7)}-01`;
-  const { budgets, safetyBufferPct } = await fetchBudgetLines(ctx.profile.id, month);
   return safeToSpend({
     balance: ctx.balance,
     transactions: ctx.transactions,
     payments: ctx.payments,
     incomeSchedule: ctx.incomeSchedule,
-    essentialBudgets: budgets.filter((b) => b.essential),
-    safetyBufferPct,
+    safetyBufferPct: await fetchSafetyBufferPct(ctx.profile.id),
     today: ctx.today,
   });
 }
@@ -206,7 +203,7 @@ export const TOOLS: ToolDef[] = [
     name: "check_affordability",
     description:
       "Can the user take on a new PayLater plan or make a purchase? Compares the amount due before the next income (the first instalment, or the full price) " +
-      "with safe-to-spend (balance + confirmed income − PayLater instalments due before the next income − essential budget left − safety buffer).",
+      "with safe-to-spend (balance + confirmed income − PayLater instalments due before the next income − safety buffer).",
     inputSchema: obj({ amount: { ...AMOUNT, description: "RM the user would pay before their next income" } }, ["amount"]),
     write: false,
     async run(a) {
@@ -368,7 +365,7 @@ export async function callTool(name: string, args: Args): Promise<{ ok: boolean;
   }
   // Best effort: a failed log must not fail the tool call.
   try {
-    await logAgentActivity(await profileIdFor("individual"), { tool: name, input: args, ok, summary, isWrite: tool.write });
+    await logAgentActivity(await studentProfileId(), { tool: name, input: args, ok, summary, isWrite: tool.write });
   } catch {}
   return { ok, text };
 }

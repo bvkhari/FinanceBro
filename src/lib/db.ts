@@ -21,12 +21,11 @@ import type { ScheduledInstalment } from "./debt/schedule";
 import { todayISO } from "./utils";
 import { netCash } from "./cashflow";
 
-type DbMode = "student" | "business";
 
 interface ProfileRow {
   id: string;
   name: string;
-  mode: DbMode;
+  mode: "student";
   currency: string;
   current_balance: string;
   created_at: string;
@@ -83,8 +82,6 @@ export interface ProfileData {
   incomeSchedule: IncomeScheduleItem[];
 }
 
-const toAppMode = (m: DbMode): AppMode => (m === "student" ? "individual" : "business");
-const toDbMode = (m: AppMode): DbMode => (m === "individual" ? "student" : "business");
 
 function mapTransaction(r: TransactionRow, mode: AppMode): Transaction {
   return {
@@ -163,20 +160,20 @@ function check<T>(res: { data: T | null; error: { message: string } | null }): T
 
 /**
  * Loads the personal profile with its BNPL debts and the transactions behind its cash balance (newest first).
- * The app is BNPL-only: other debt types, bills and the business profile stay in the database but aren't loaded.
+ * The database only holds student profiles and BNPL debts (see the paylater_only migration).
  */
 export async function fetchProfileData(): Promise<ProfileData> {
   if (supabaseConfigError) throw new Error(supabaseConfigError);
   const mode: AppMode = "individual";
   const p = check(
-    await supabase.from("profiles").select("*").eq("mode", toDbMode(mode)).order("created_at").limit(1).single()
+    await supabase.from("profiles").select("*").eq("mode", "student").order("created_at").limit(1).single()
   ) as ProfileRow;
 
   const [txRows, debtRows, incomeRows] = await Promise.all([
     supabase.from("transactions").select("*").eq("profile_id", p.id)
       .order("txn_date", { ascending: false }).order("created_at", { ascending: false }),
     supabase.from("debts").select("*, debt_instalments(*), debt_payments(paid_date, principal_amount)")
-      .eq("profile_id", p.id).eq("debt_type", "bnpl").order("created_at"),
+      .eq("profile_id", p.id).order("created_at"),
     supabase.from("income_schedule").select("id, source, expected_amount, expected_date, confirmed").eq("profile_id", p.id).order("expected_date"),
   ]).then((rs) => rs.map(check));
 
@@ -306,35 +303,15 @@ export async function rescheduleDebt(debtId: string, frequency: DebtFrequency, r
   ) as number;
 }
 
-// ---------- budgets, expected income and agent runs (used by the AI agent) ----------
+// ---------- safety buffer, expected income and agent activity (used by the AI agent) ----------
 
-export interface BudgetLine {
-  category: string;
-  limit: number;
-  essential: boolean;
-  createdBy: "user" | "agent";
+/** The profile's safety buffer, as a % of last month's income. */
+export async function fetchSafetyBufferPct(profileId: string) {
+  const p = check(await supabase.from("profiles").select("safety_buffer_pct").eq("id", profileId).single()) as { safety_buffer_pct: string };
+  return Number(p.safety_buffer_pct);
 }
 
-/** Budget lines for one month (`month` = first day) and the profile's safety buffer %. */
-export async function fetchBudgetLines(profileId: string, month: string) {
-  const [rowsRes, pRes] = await Promise.all([
-    supabase.from("budgets").select("category, limit_amount, essential, created_by").eq("profile_id", profileId).eq("month", month).order("category"),
-    supabase.from("profiles").select("safety_buffer_pct").eq("id", profileId).single(),
-  ]);
-  const rows = check(rowsRes);
-  const p = check(pRes);
-  return {
-    budgets: (rows as { category: string; limit_amount: string; essential: boolean; created_by: "user" | "agent" }[]).map((r) => ({
-      category: r.category,
-      limit: Number(r.limit_amount),
-      essential: r.essential,
-      createdBy: r.created_by,
-    })) as BudgetLine[],
-    safetyBufferPct: Number((p as { safety_buffer_pct: string }).safety_buffer_pct),
-  };
-}
-
-export type IncomeSource = "allowance" | "salary" | "PTPTN" | "sales" | "other";
+export type IncomeSource = "allowance" | "salary" | "PTPTN" | "other";
 
 export async function insertExpectedIncome(profileId: string, i: { source: IncomeSource; expectedAmount: number; expectedDate: string; confirmed: boolean }) {
   const row = check(
@@ -355,9 +332,10 @@ export interface AgentActivity {
   createdAt: string;
 }
 
-export async function profileIdFor(mode: AppMode): Promise<string> {
+/** The student profile the app shows. */
+export async function studentProfileId(): Promise<string> {
   const p = check(
-    await supabase.from("profiles").select("id").eq("mode", toDbMode(mode)).order("created_at").limit(1).single()
+    await supabase.from("profiles").select("id").eq("mode", "student").order("created_at").limit(1).single()
   ) as { id: string };
   return p.id;
 }

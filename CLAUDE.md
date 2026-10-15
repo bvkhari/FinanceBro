@@ -23,7 +23,7 @@ npm run seed                # regenerates supabase/seed.sql and resets the live 
 
 ## Ground rules (they drive most of the design)
 
-- **PayLater only.** One personal profile, `debt_type = 'bnpl'` debts only, no bills, expenses, budgets or business profile in the UI or the agent tools. The old tables, the other debt types and the Kopi Senja business profile still exist in the database and the seed. `fetchProfileData()` is what filters them out, so the UI and the agent tools see the same data.
+- **PayLater only.** One student profile and `bnpl` debts only. The `20261016000000_paylater_only` migration deleted the business profile and the bills (`commitments`), `budgets`, `reminders`, `reports` and `agent_runs` tables, and added check constraints (`profiles.mode = 'student'`, `debts.debt_type = 'bnpl'`). Because `db:migrate` re-runs every migration and the older ones re-create some of those objects, that migration must stay the last word: keep it safe to repeat, and put new schema changes after it.
 - **The LLM decides, code calculates.** Every RM figure comes from pure TS functions or SQL, never from a model. Agent tools and pages call the same functions.
 - **Nothing moves money.** The app only records payments the user already made.
 - **Cash is context, not the product.** `transactions` still exists because every recorded PayLater payment writes a `Debt Repayment` transaction and the cash balance is built from the ledger. The cash balance is used only for "can you cover your instalments" and affordability. Credit purchases (`cash_effect = false`) never move cash; `netCash` in `src/lib/cashflow.ts` encodes this.
@@ -45,7 +45,7 @@ npm run seed                # regenerates supabase/seed.sql and resets the live 
 - `src/lib/debt/schedule.ts`: generates instalments (one-time, weekly, fortnightly, monthly, yearly). Short months clamp and then return to the original day, and the last instalment takes the remainder. Also handles irregular schedules and `planScheduleExtension`.
 - `src/lib/debt/payments.ts`: the "To pay" list, countdowns, filters, per-provider grouping (`groupByCreditor`, `debtBreakdown`), `debtOverview` and `extraPaymentScenario`. `buildPayments` and `cashFlow` still accept bills; the app always passes `[]`.
 - `src/lib/debt/agent.ts`: `answerDebtQuestion()`, the keyword fallback for chat when no agent engine is available.
-- `src/lib/cashflow.ts`, `src/lib/safeToSpend.ts` and `src/lib/reports.ts` (`debtSchedule`): the money maths. Safe-to-spend (used by `check_affordability`) = balance + confirmed income before the next payday − instalments due before then − remaining essential budget − safety buffer.
+- `src/lib/cashflow.ts`, `src/lib/safeToSpend.ts` and `src/lib/reports.ts` (`debtSchedule`): the money maths. Safe-to-spend (used by `check_affordability`) = balance + confirmed income before the next payday − instalments due before then − safety buffer (`profiles.safety_buffer_pct` of last month's income).
 
 **AI (WorkBuddy/CodeBuddy over MCP).** FinanceBro has no LLM of its own.
 - `POST /api/mcp` (`src/app/api/mcp/route.ts`) is a hand-written, stateless JSON-RPC MCP server. Tools are defined in `src/lib/agent/tools.ts` as `ToolDef`s (`write` flag, input schema, `run`). They take no `mode` argument; a `mode` sent by an older client is ignored. Tool calls are logged to `agent_activity`, which the `/agent` page shows live. Throw `ToolInputError` for bad input so the message goes back to the agent. `MCP_TOKEN` optionally locks the endpoint.
@@ -55,7 +55,7 @@ npm run seed                # regenerates supabase/seed.sql and resets the live 
 
 ## Seed data
 
-`scripts/seed.mjs` is deterministic (fixed PRNG). The app shows Aina Rahman (student) and her four PayLater plans: Shopee, TikTok, Atome and Grab. The seed still builds the Kopi Senja café profile, which the app no longer loads. Rows are marked `is_sample`. The script prints each profile's safe-to-spend inputs so you can check them by hand. `npm run seed` resets the live demo database (it applies through `supabase db query --linked`, so a logged-in Supabase CLI is required).
+`scripts/seed.mjs` is deterministic (fixed PRNG) and builds one fictional student, Aina Rahman, with four PayLater plans: Shopee, TikTok, Atome and Grab. Her transactions exist only to build her cash balance. Rows are marked `is_sample`. The script prints the safe-to-spend inputs so you can check them by hand. `npm run seed` resets the live demo database (it applies through `supabase db query --linked`, so a logged-in, linked Supabase CLI is required).
 
 ## Branches
 

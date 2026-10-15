@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, Receipt } from "lucide-react";
+import { CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { formatDate, formatDateShort, formatRM } from "@/lib/utils";
 import { INSTALMENT_STATUS_STYLE } from "@/lib/debt/labels";
@@ -16,19 +16,17 @@ const iconTone = {
 
 /**
  * One row per payment: who to pay, how much, the exact due date and a
- * countdown. Unpaid rows get an action (record a debt payment / mark a bill paid).
+ * countdown. Unpaid rows get a record-payment action.
  */
 export function PaymentRows({
   items,
   today,
   onPay,
-  onMarkBillPaid,
   compact = false,
 }: {
   items: PaymentItem[];
   today: string;
   onPay?: (item: PaymentItem) => void;
-  onMarkBillPaid?: (item: PaymentItem) => void;
   compact?: boolean;
 }) {
   return (
@@ -37,15 +35,17 @@ export function PaymentRows({
         const status = INSTALMENT_STATUS_STYLE[p.status];
         const unpaid = p.remaining > 0;
         const late = p.status === "overdue";
-        const Icon = p.kind === "debt" ? CreditCard : Receipt;
         return (
           <li key={p.key} className={`flex items-center gap-x-3 gap-y-2 px-4 py-3 ${compact ? "" : "flex-wrap"}`}>
             <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${iconTone[p.status]}`}>
-              <Icon className="h-4 w-4" />
+              <CreditCard className="h-4 w-4" />
             </span>
 
             <div className={`min-w-0 flex-1 ${compact ? "" : "basis-40"}`}>
-              <p className="truncate text-body text-label">{p.payee}</p>
+              <p className="truncate text-body text-label">
+                {p.payee}
+                {p.bought && <span className="text-label-2"> · {p.bought}</span>}
+              </p>
               <p className="text-footnote text-label-2">
                 <span className={late ? "font-medium text-negative" : unpaid && p.dueDate === today ? "font-medium text-warning" : ""}>
                   {compact ? formatDateShort(p.dueDate) : formatDate(p.dueDate)} · {countdown(p.dueDate, today, p.status)}
@@ -53,7 +53,7 @@ export function PaymentRows({
                 {!compact && (
                   <>
                     {" · "}
-                    {p.category} · {p.frequency}
+                    {p.frequency}
                     {p.instalmentNo && p.instalmentCount && p.instalmentCount > 1 && <> · {p.instalmentNo} of {p.instalmentCount}</>}
                   </>
                 )}
@@ -80,14 +80,9 @@ export function PaymentRows({
 
             {!compact && (
               <div className="shrink-0 text-right empty:hidden max-sm:w-full max-sm:pl-11 max-sm:text-left sm:w-[8.5rem]">
-                {unpaid && p.kind === "debt" && onPay && (
+                {unpaid && onPay && (
                   <Button variant="success" size="sm" onClick={() => onPay(p)}>
                     Record payment
-                  </Button>
-                )}
-                {unpaid && p.kind === "bill" && onMarkBillPaid && (
-                  <Button variant="secondary" size="sm" onClick={() => onMarkBillPaid(p)}>
-                    Mark paid
                   </Button>
                 )}
               </div>

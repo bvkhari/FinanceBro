@@ -1,4 +1,4 @@
-import { AppMode, BusinessDebtType, DebtFrequency, DebtType, InstalmentStatus, PersonalDebtType } from "../types";
+import { BusinessDebtType, DebtFrequency, DebtType, InstalmentStatus, PersonalDebtType } from "../types";
 
 export const PERSONAL_DEBT_TYPES: Record<PersonalDebtType, string> = {
   bnpl: "Buy Now, Pay Later",
@@ -20,13 +20,10 @@ export const BUSINESS_DEBT_TYPES: Record<BusinessDebtType, string> = {
   other_business: "Other liability",
 };
 
-export const DEBT_TYPE_LABELS: Record<DebtType, string> = { ...PERSONAL_DEBT_TYPES, ...BUSINESS_DEBT_TYPES };
+/** PayLater providers offered when adding a plan. Any other name can be typed in. */
+export const BNPL_PROVIDERS = ["Shopee PayLater", "TikTok PayLater", "Grab PayLater", "Atome"] as const;
 
-export const debtTypesFor = (mode: AppMode) =>
-  Object.entries(mode === "business" ? BUSINESS_DEBT_TYPES : PERSONAL_DEBT_TYPES).map(([value, label]) => ({
-    value: value as DebtType,
-    label,
-  }));
+export const DEBT_TYPE_LABELS: Record<DebtType, string> = { ...PERSONAL_DEBT_TYPES, ...BUSINESS_DEBT_TYPES };
 
 export const FREQUENCY_LABELS: Record<DebtFrequency, string> = {
   one_time: "One-time",

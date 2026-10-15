@@ -1,8 +1,6 @@
 // ============================================================
 // FinanceBro AI — Core TypeScript Interfaces
 // These interfaces define the data contracts for the entire app.
-// Backend teammates can replace mock implementations with real
-// API calls by conforming to these same interfaces.
 // ============================================================
 
 /** Application mode — Individual or Business */
@@ -22,7 +20,6 @@ export interface FinancialProfile {
   accountType: string;
   currency: string;
   startingBalance: number;
-  monthlyBudget: number;
   createdAt: string;
 }
 
@@ -42,7 +39,7 @@ export interface Transaction {
   createdAt: string;
 }
 
-/** A financial commitment / upcoming bill */
+/** A bill. The app no longer tracks bills; the pure payment and cash-flow functions still accept them. */
 export interface FinancialCommitment {
   id: string;
   mode: AppMode;
@@ -58,27 +55,6 @@ export interface FinancialCommitment {
   paidTransactionId?: string; // Links to a Transaction if paid
 }
 
-/** Budget summary for weekly/monthly views */
-export interface Budget {
-  mode: AppMode;
-  period: "weekly" | "monthly";
-  totalBudget: number;
-  spent: number;
-  remaining: number;
-  percentageUsed: number;
-}
-
-/** Aggregated financial summary */
-export interface FinancialSummary {
-  mode: AppMode;
-  currentBalance: number;
-  totalMonthlyIncome: number;
-  totalMonthlyExpenses: number;
-  upcomingCommitments: number;
-  budgetRemaining: number;
-  projectedRemainingBalance: number;
-}
-
 /** Chat message in the FinanceBro AI conversation */
 export interface ChatMessage {
   id: string;
@@ -89,9 +65,6 @@ export interface ChatMessage {
   /** Receipts the user sent with the message (local preview URLs). */
   attachments?: { url: string; name: string; kind: "image" | "pdf" }[];
   agentSteps?: AgentExecutionStep[];
-  agentActions?: AgentAction[];
-  transactionPreview?: TransactionPreviewData;
-  budgetProposal?: BudgetProposalData;
 }
 
 /** Agent execution step in the AI workflow */
@@ -101,54 +74,6 @@ export interface AgentExecutionStep {
   label: string;
   status: "pending" | "active" | "completed" | "error";
   description?: string;
-}
-
-/** Agent action that can be confirmed or cancelled */
-export interface AgentAction {
-  id: string;
-  type: "add_transaction" | "update_budget" | "pay_commitment" | "create_commitment" | "show_summary";
-  label: string;
-  status: "awaiting_approval" | "approved" | "cancelled" | "executing" | "completed" | "error";
-  data?: Record<string, unknown>;
-}
-
-/** Transaction preview data shown in chat for confirmation */
-export interface TransactionPreviewData {
-  amount: number;
-  type: TransactionType;
-  category: string;
-  account: string;
-  description?: string;
-}
-
-/** Budget proposal data shown in chat */
-export interface BudgetProposalData {
-  category: string;
-  currentBudget: number;
-  proposedBudget: number;
-  reason: string;
-}
-
-/** Spending category breakdown for charts */
-export interface CategoryBreakdown {
-  category: string;
-  amount: number;
-  color: string;
-  percentage: number;
-}
-
-/** Income vs Expense data for charts */
-export interface IncomeExpenseData {
-  label: string;
-  income: number;
-  expenses: number;
-}
-
-/** Suggested prompt for the AI chat */
-export interface SuggestedPrompt {
-  id: string;
-  text: string;
-  icon?: string;
 }
 
 /** Notification item */
@@ -235,16 +160,13 @@ export interface NewDebtInput {
   endDate?: string;
   referenceNo?: string;
   notes?: string;
-  /** What was bought on credit: recorded as an expense that doesn't move cash. */
+  /** What was bought on credit: recorded as an expense that doesn't move cash. The app no longer sets it; the seed passes it to create_debt directly. */
   purchase?: { date: string; category: string; note?: string };
 }
 
 /** Details that can be edited without touching amounts or the schedule. `null` clears the interest rate. */
 export type DebtDetailsUpdate = Partial<Pick<NewDebtInput,
   "name" | "debtType" | "startDate" | "endDate" | "referenceNo" | "notes">> & { interestRate?: number | null };
-
-/** What the user enters for a new transaction. Entered transactions always move cash. */
-export type NewTransaction = Omit<Transaction, "id" | "createdAt" | "mode" | "cashEffect">;
 
 /** Income the profile expects (allowance, salary, PTPTN, sales payouts). */
 export interface IncomeScheduleItem {

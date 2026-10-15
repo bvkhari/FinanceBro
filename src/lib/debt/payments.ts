@@ -13,6 +13,8 @@ export interface PaymentItem {
   kind: "debt" | "bill";
   mode: AppMode; // which profile it belongs to
   payee: string;
+  /** What the PayLater plan paid for (the debt's notes). */
+  bought?: string;
   category: string;
   frequency: string; // display label
   dueDate: string;
@@ -87,6 +89,7 @@ export function buildPayments(debts: Debt[], bills: FinancialCommitment[], today
         kind: "debt",
         mode: debt.mode,
         payee: debt.name,
+        bought: debt.notes,
         category: DEBT_TYPE_LABELS[debt.debtType],
         frequency: frequencyLabel(debt.frequency),
         dueDate: inst.dueDate,

@@ -4,33 +4,26 @@
 // states comes from here, worked out by the same functions the
 // app's pages use.
 //
+// FinanceBro tracks one personal profile's PayLater (BNPL) plans.
 // Nothing here moves money: payments are records of payments the
 // user already made.
 // ============================================================
 
-import { AppMode, DebtType, Transaction } from "../types";
 import {
   createDebt,
   fetchBudgetLines,
   fetchProfileData,
-  insertCommitment,
   insertExpectedIncome,
-  insertTransaction,
   logAgentActivity,
   profileIdFor,
-  markCommitmentPaidOnce,
   recordDebtPayment,
-  updateTransactionRow,
-  upsertBudget,
   type IncomeSource,
 } from "../db";
 import { netCash, cashFlow } from "../cashflow";
 import { safeToSpend } from "../safeToSpend";
-import { buildPayments, debtOverview, extraPaymentScenario, filterPayments, type PaymentFilter } from "../debt/payments";
+import { buildPayments, debtBreakdown, debtOverview, extraPaymentScenario, filterPayments, type PaymentFilter } from "../debt/payments";
 import { generateSchedule, isValidDate } from "../debt/schedule";
-import { debtSchedule, monthLabel, monthlySummary, reportMonths, spendingByCategory } from "../reports";
-import { BILL_CATEGORIES, TRANSACTION_CATEGORIES, spendingCategories } from "../categories";
-import { BUSINESS_DEBT_TYPES, PERSONAL_DEBT_TYPES } from "../debt/labels";
+import { debtSchedule } from "../reports";
 
 type Args = Record<string, unknown>;
 
@@ -91,14 +84,12 @@ function oneOf<T extends string>(a: Args, key: string, allowed: readonly T[], fa
   return v;
 }
 
-const modeOf = (a: Args) => oneOf<AppMode>(a, "mode", ["individual", "business"]);
-
-/** Everything about one profile, with today's balance worked out the same way as the app. */
-async function load(mode: AppMode) {
-  const data = await fetchProfileData(mode);
+/** The profile's PayLater plans, with today's cash balance worked out the same way as the app. */
+async function load() {
+  const data = await fetchProfileData();
   const today = todayMY();
   const balance = (cents(data.profile.startingBalance) + cents(netCash(data.transactions))) / 100;
-  const payments = buildPayments(data.debts, data.commitments, today);
+  const payments = buildPayments(data.debts, [], today);
   return { ...data, today, balance, payments };
 }
 
@@ -116,18 +107,8 @@ async function safeToSpendFor(ctx: Awaited<ReturnType<typeof load>>) {
   });
 }
 
-const txOut = (t: Transaction) => ({
-  id: t.id, date: t.date, merchant: t.name, amount: t.amount, type: t.type, category: t.category,
-  note: t.description, flag: t.flag, paidInCash: t.cashEffect,
-});
-
 // ---------- schemas ----------
 
-const MODE = {
-  type: "string",
-  enum: ["individual", "business"],
-  description: "Which profile: individual = the student / personal account, business = the business account. Ask the user if unclear.",
-};
 const DATE = { type: "string", description: "YYYY-MM-DD" };
 const AMOUNT = { type: "number", description: "Ringgit (MYR), above 0" };
 
@@ -139,99 +120,59 @@ export const TOOLS: ToolDef[] = [
   {
     name: "get_snapshot",
     description:
-      "Start here. The profile's full financial picture today: balance, this month's cash flow and projection to month end, " +
-      "safe-to-spend and daily allowance until the next income, debt totals, what's due soon, spending by category, and data issues " +
-      "(uncategorised or possible duplicate transactions). Use these figures as-is; never compute money yourself.",
-    inputSchema: obj({ mode: MODE }, ["mode"]),
+      "Start here. The user's PayLater picture today: total owed, owed per provider, what's due in the next 7 days, this month and overdue, " +
+      "the next instalment, cash now and the projection to month end after instalments, and safe-to-spend until the next income. " +
+      "Use these figures as-is; never compute money yourself.",
+    inputSchema: obj({}, []),
     write: false,
-    async run(a) {
-      const ctx = await load(modeOf(a));
-      const month = ctx.today.slice(0, 7);
+    async run() {
+      const ctx = await load();
       const flow = cashFlow({ transactions: ctx.transactions, balance: ctx.balance, payments: ctx.payments, incomeSchedule: ctx.incomeSchedule, today: ctx.today });
       const debt = debtOverview(ctx.debts, ctx.payments, ctx.balance, ctx.today);
       const sts = await safeToSpendFor(ctx);
-      const summary = monthlySummary(ctx.transactions, ctx.balance, ctx.commitments, month);
-      const flagged = ctx.transactions.filter((t) => t.flag === "duplicate");
-      const uncategorised = ctx.transactions.filter((t) => t.category === "Uncategorised");
       return {
-        summary: `${ctx.profile.displayName}: balance ${rm(ctx.balance)}, safe to spend ${rm(sts.safeToSpend)} until ${sts.nextIncomeDate}.`,
+        summary: `${ctx.profile.displayName}: ${rm(debt.totalOutstanding)} owed on ${debt.activeDebts} PayLater plans, ${rm(debt.dueNext7Days)} due in 7 days, ${rm(debt.overdue)} overdue.`,
         data: {
-          profile: { name: ctx.profile.displayName, mode: ctx.profile.mode, currency: "MYR", today: ctx.today },
-          balance: ctx.balance,
-          safeToSpend: sts,
-          cashFlowThisMonth: flow,
-          thisMonth: {
-            income: summary.income,
-            spending: summary.spending,
-            spentOnCredit: summary.spentOnCredit,
-            debtRepayments: summary.debtRepayments,
-            previousMonthSpending: summary.previousSpending,
-            savingsRatePct: summary.savingsRate,
-            byCategory: summary.categories.map((c) => ({ category: c.category, amount: c.amount, sharePct: c.share, lastMonth: c.previous })),
-          },
-          debt: {
+          profile: { name: ctx.profile.displayName, currency: "MYR", today: ctx.today },
+          paylater: {
             totalOutstanding: debt.totalOutstanding,
-            activeDebts: debt.activeDebts,
+            activePlans: debt.activeDebts,
+            owedByProvider: debtBreakdown(ctx.debts, ctx.payments, "outstanding", ctx.today),
             dueNext7Days: debt.dueNext7Days,
             dueThisMonth: debt.dueThisMonth,
             overdue: debt.overdue,
-            nextPayment: debt.nextPayment && { payee: debt.nextPayment.payee, dueDate: debt.nextPayment.dueDate, amount: debt.nextPayment.remaining },
+            overdueByProvider: debtBreakdown(ctx.debts, ctx.payments, "overdue", ctx.today),
+            nextPayment: debt.nextPayment && { provider: debt.nextPayment.payee, dueDate: debt.nextPayment.dueDate, amount: debt.nextPayment.remaining },
           },
+          cash: {
+            balance: ctx.balance,
+            monthEnd: flow.monthEnd,
+            expectedIncomeConfirmed: flow.expectedIncomeConfirmed,
+            expectedIncomeUnconfirmed: flow.expectedIncomeUnconfirmed,
+            instalmentsDueByMonthEnd: flow.debtRepaymentsDue,
+            projectedCashAtMonthEnd: flow.projectedCash,
+          },
+          safeToSpend: sts,
           upcomingIncome: ctx.incomeSchedule.filter((i) => i.expectedDate >= ctx.today),
-          dataIssues: {
-            possibleDuplicates: flagged.map(txOut),
-            uncategorised: uncategorised.map(txOut),
-          },
         },
       };
     },
   },
   {
-    name: "list_transactions",
-    description: "Transactions, newest first. Filter by date range, category, type or a merchant search.",
-    inputSchema: obj(
-      {
-        mode: MODE,
-        from: DATE,
-        to: DATE,
-        category: { type: "string" },
-        type: { type: "string", enum: ["income", "expense"] },
-        search: { type: "string", description: "Part of the merchant name or note" },
-        limit: { type: "number", description: "Default 50, max 200" },
-      },
-      ["mode"]
-    ),
-    write: false,
-    async run(a) {
-      const ctx = await load(modeOf(a));
-      const q = (str(a, "search", false) ?? "").toLowerCase();
-      const rows = ctx.transactions.filter(
-        (t) =>
-          (!a.from || t.date >= (a.from as string)) &&
-          (!a.to || t.date <= (a.to as string)) &&
-          (!a.category || t.category === a.category) &&
-          (!a.type || t.type === a.type) &&
-          (!q || t.name.toLowerCase().includes(q) || (t.description ?? "").toLowerCase().includes(q))
-      );
-      const limit = Math.min(Number(a.limit) || 50, 200);
-      return { summary: `${rows.length} transactions match.`, data: { total: rows.length, transactions: rows.slice(0, limit).map(txOut) } };
-    },
-  },
-  {
     name: "list_debts",
-    description: "Every debt with its outstanding balance, terms, next instalment and the remaining unpaid schedule. Use the ids for record_debt_payment and debt_payoff_scenario.",
-    inputSchema: obj({ mode: MODE, include_closed: { type: "boolean" } }, ["mode"]),
+    description: "Every PayLater plan with its provider, what was bought, outstanding balance, terms, next instalment and the remaining unpaid schedule. Use the ids for record_debt_payment and debt_payoff_scenario.",
+    inputSchema: obj({ include_closed: { type: "boolean" } }, []),
     write: false,
     async run(a) {
-      const ctx = await load(modeOf(a));
+      const ctx = await load();
       const debts = ctx.debts.filter((d) => a.include_closed || d.status === "active");
       return {
-        summary: `${debts.length} debts.`,
+        summary: `${debts.length} PayLater plans.`,
         data: debts.map((d) => ({
-          id: d.id, name: d.name, type: d.debtType, status: d.status,
+          id: d.id, provider: d.name, bought: d.notes, status: d.status,
           originalAmount: d.originalAmount, outstandingBalance: d.outstandingBalance,
           repaymentAmount: d.repaymentAmount, frequency: d.frequency,
-          interestRatePct: d.interestRate ?? "unknown", referenceNo: d.referenceNo, notes: d.notes, isSample: d.isSample,
+          interestRatePct: d.interestRate ?? "unknown", orderNo: d.referenceNo, isSample: d.isSample,
           nextInstalment: d.nextInstalment && { id: d.nextInstalment.id, dueDate: d.nextInstalment.dueDate, remaining: d.nextInstalment.remaining, status: d.nextInstalment.status },
           unpaidSchedule: d.instalments.filter((i) => i.remaining > 0).map((i) => ({ dueDate: i.dueDate, remaining: i.remaining, status: i.status })),
           unscheduledBalance: d.unscheduledBalance,
@@ -241,58 +182,35 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_payments_due",
-    description: "Who the user needs to pay: debt instalments and bills together, sorted by due date, with the period total (paid and cancelled excluded).",
-    inputSchema: obj({ mode: MODE, period: { type: "string", enum: ["today", "next7", "month", "overdue", "paid", "all"], description: "Default next7" } }, ["mode"]),
+    description: "Which PayLater instalments the user needs to pay, sorted by due date, with the period total (paid and cancelled excluded).",
+    inputSchema: obj({ period: { type: "string", enum: ["today", "next7", "month", "overdue", "paid", "all"], description: "Default next7" } }, []),
     write: false,
     async run(a) {
-      const ctx = await load(modeOf(a));
+      const ctx = await load();
       const period = oneOf<PaymentFilter>(a, "period", ["today", "next7", "month", "overdue", "paid", "all"], "next7");
       const items = filterPayments(ctx.payments, period, ctx.today);
       const total = items.reduce((s, p) => s + cents(p.remaining), 0) / 100;
       return {
-        summary: `${items.length} payments (${period}), ${rm(total)} still to pay.`,
+        summary: `${items.length} instalments (${period}), ${rm(total)} still to pay.`,
         data: {
           period, totalStillToPay: total,
           items: items.map((p) => ({
-            kind: p.kind, payee: p.payee, dueDate: p.dueDate, amount: p.amount, paid: p.amountPaid, remaining: p.remaining, status: p.status,
-            debtId: p.debtId, billId: p.commitmentId, instalment: p.instalmentNo && `${p.instalmentNo} of ${p.instalmentCount}`,
+            provider: p.payee, dueDate: p.dueDate, amount: p.amount, paid: p.amountPaid, remaining: p.remaining, status: p.status,
+            debtId: p.debtId, instalment: p.instalmentNo && `${p.instalmentNo} of ${p.instalmentCount}`,
           })),
         },
       };
     },
   },
   {
-    name: "monthly_report",
-    description: "One month in numbers: opening and closing cash, income, spending (cash and on credit), debt repayments, interest and fees, savings rate, spending by category vs the month before, the five biggest expenses, and budget lines with what's left.",
-    inputSchema: obj({ mode: MODE, month: { type: "string", description: "YYYY-MM, default this month" } }, ["mode"]),
-    write: false,
-    async run(a) {
-      const ctx = await load(modeOf(a));
-      const month = (a.month as string | undefined) ?? ctx.today.slice(0, 7);
-      if (!/^\d{4}-\d{2}$/.test(month)) throw new ToolInputError(`"month" must be YYYY-MM.`);
-      const s = monthlySummary(ctx.transactions, ctx.balance, ctx.commitments, month);
-      const { budgets } = await fetchBudgetLines(ctx.profile.id, `${month}-01`);
-      const spent = new Map(s.categories.map((c) => [c.category, c.amount]));
-      return {
-        summary: `${month}: income ${rm(s.income)}, spending ${rm(s.spending)}.`,
-        data: {
-          ...s,
-          biggest: s.biggest.map(txOut),
-          budgets: budgets.map((b) => {
-            const used = spent.get(b.category) ?? 0;
-            return { ...b, spent: used, left: (cents(b.limit) - cents(used)) / 100 };
-          }),
-        },
-      };
-    },
-  },
-  {
     name: "check_affordability",
-    description: "Can the user afford a purchase? Compares the amount with safe-to-spend (balance + confirmed income − bills and debt due before the next income − essential budget left − safety buffer).",
-    inputSchema: obj({ mode: MODE, amount: AMOUNT }, ["mode", "amount"]),
+    description:
+      "Can the user take on a new PayLater plan or make a purchase? Compares the amount due before the next income (the first instalment, or the full price) " +
+      "with safe-to-spend (balance + confirmed income − PayLater instalments due before the next income − essential budget left − safety buffer).",
+    inputSchema: obj({ amount: { ...AMOUNT, description: "RM the user would pay before their next income" } }, ["amount"]),
     write: false,
     async run(a) {
-      const ctx = await load(modeOf(a));
+      const ctx = await load();
       const amount = money(a, "amount")!;
       const sts = await safeToSpendFor(ctx);
       const after = (cents(sts.safeToSpend) - cents(amount)) / 100;
@@ -304,90 +222,37 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "debt_payoff_scenario",
-    description: "What paying an extra lump sum on one debt now would do: new outstanding balance, how many instalments it clears, the new payoff date, and interest saved (only when the debt's rate is known). Use it to compare strategies (e.g. avalanche vs snowball) for a plan.",
-    inputSchema: obj({ mode: MODE, debt_id: { type: "string" }, extra: AMOUNT }, ["mode", "debt_id", "extra"]),
+    description: "What paying an extra lump sum on one PayLater plan now would do: new outstanding balance, how many instalments it clears, the new payoff date, and interest saved (only when the plan's rate is known). Use it to compare which plan to clear first.",
+    inputSchema: obj({ debt_id: { type: "string" }, extra: AMOUNT }, ["debt_id", "extra"]),
     write: false,
     async run(a) {
-      const ctx = await load(modeOf(a));
+      const ctx = await load();
       const debt = ctx.debts.find((d) => d.id === str(a, "debt_id"));
-      if (!debt) throw new ToolInputError("No debt with that id on this profile. Call list_debts.");
+      if (!debt) throw new ToolInputError("No PayLater plan with that id. Call list_debts.");
       const s = extraPaymentScenario(debt, money(a, "extra")!, ctx.today);
-      return { summary: `${debt.name}: ${rm(s.extra)} extra leaves ${rm(s.outstandingAfter)}.`, data: { debt: debt.name, ...s } };
+      return { summary: `${debt.name}: ${rm(s.extra)} extra leaves ${rm(s.outstandingAfter)}.`, data: { provider: debt.name, ...s } };
     },
   },
-
   {
     name: "generate_report",
     description:
-      "Create a report with FinanceBro's report generator and get a link to open it. Reports: " +
-      "monthly (income, spending, cash in and out, savings rate, biggest expenses), spending (by category, vs the month before), " +
-      "debts (every active debt and each payment still to make, month by month). On the report page the user can download CSV or save it as a PDF. " +
-      "Give the user the link exactly as returned.",
-    inputSchema: obj(
-      {
-        mode: MODE,
-        kind: { type: "string", enum: ["monthly", "spending", "debts"] },
-        month: { type: "string", description: "YYYY-MM for monthly and spending, default this month. Not used for debts." },
-      },
-      ["mode", "kind"]
-    ),
+      "Create the PayLater schedule report (every active plan and each instalment still to pay, month by month) and get a link to open it. " +
+      "On the report page the user can download CSV or save it as a PDF. Give the user the link exactly as returned.",
+    inputSchema: obj({}, []),
     write: false,
-    async run(a) {
-      const mode = modeOf(a);
-      const ctx = await load(mode);
-      const kind = oneOf(a, "kind", ["monthly", "spending", "debts"] as const);
-      const months = reportMonths(ctx.transactions, ctx.today);
-      const month = (a.month as string | undefined) ?? ctx.today.slice(0, 7);
-      if (kind !== "debts" && !months.includes(month)) {
-        throw new ToolInputError(`No report for "${month}". Months with records: ${months.join(", ")}.`);
-      }
-      const params = new URLSearchParams({ kind, mode, ...(kind === "debts" ? {} : { month }) });
-      const link = `/reports?${params}`;
+    async run() {
+      const ctx = await load();
+      const link = "/reports";
       const base = process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "");
-      const meta = { profile: ctx.profile.displayName, link, url: base ? `${base}${link}` : undefined, actions: "On the report: CSV download, Save as PDF" };
-
-      if (kind === "monthly") {
-        const s = monthlySummary(ctx.transactions, ctx.balance, ctx.commitments, month);
-        return {
-          summary: `Monthly summary for ${monthLabel(month)}: income ${rm(s.income)}, spending ${rm(s.spending)}.`,
-          data: {
-            ...meta,
-            title: `Monthly summary · ${monthLabel(month)}`,
-            highlights: {
-              openingCash: s.openingCash, income: s.income, spending: s.spending, cashSpending: s.cashSpending,
-              spentOnCredit: s.spentOnCredit, debtRepayments: s.debtRepayments, interestFees: s.interestFees,
-              closingCash: s.closingCash, net: s.net, savingsRatePct: s.savingsRate, previousMonthSpending: s.previousSpending,
-              spendingChangeVsPreviousMonth: (cents(s.spending) - cents(s.previousSpending)) / 100,
-              topCategories: s.categories.slice(0, 3).map((c) => ({ category: c.category, amount: c.amount, sharePct: c.share })),
-            },
-          },
-        };
-      }
-      if (kind === "spending") {
-        const rows = spendingByCategory(ctx.transactions, month);
-        const total = rows.reduce((t, r) => t + cents(r.amount), 0) / 100;
-        return {
-          summary: `Spending by category for ${monthLabel(month)}: ${rm(total)} across ${rows.filter((r) => r.amount > 0).length} categories.`,
-          data: {
-            ...meta,
-            title: `Spending by category · ${monthLabel(month)}`,
-            total,
-            categories: rows.map((r) => ({
-              category: r.category, amount: r.amount, sharePct: r.share, items: r.count, lastMonth: r.previous,
-              changeVsLastMonth: (cents(r.amount) - cents(r.previous)) / 100,
-            })),
-          },
-        };
-      }
       const r = debtSchedule(ctx.debts, ctx.today);
       return {
-        summary: `Debt schedule: ${rm(r.totalOutstanding)} owed on ${r.debts.length} debts.`,
+        summary: `PayLater schedule: ${rm(r.totalOutstanding)} owed on ${r.debts.length} plans.`,
         data: {
-          ...meta,
-          title: `Debt schedule · as of ${ctx.today}`,
+          profile: ctx.profile.displayName, link, url: base ? `${base}${link}` : undefined, actions: "On the report: CSV download, Save as PDF",
+          title: `PayLater schedule · as of ${ctx.today}`,
           totalOutstanding: r.totalOutstanding,
           unscheduled: r.unscheduled,
-          debts: r.debts.map((d) => ({ name: d.name, outstanding: d.outstanding, nextDue: d.nextDue, finalDue: d.finalDue, instalmentsLeft: d.instalmentsLeft })),
+          plans: r.debts.map((d) => ({ provider: d.name, outstanding: d.outstanding, nextDue: d.nextDue, finalDue: d.finalDue, instalmentsLeft: d.instalmentsLeft })),
           nextMonths: r.months.slice(0, 3).map((m) => ({ month: m.month, stillToPay: m.total })),
         },
       };
@@ -397,229 +262,44 @@ export const TOOLS: ToolDef[] = [
   // ---------- writes ----------
 
   {
-    name: "add_transactions",
-    description:
-      "Record one or more transactions the user tells you about (\"spent RM12 on nasi lemak\", a pasted receipt or bank list). " +
-      "Pick the category from the profile's list. A transaction with the same date, amount and merchant as an existing one is skipped as a duplicate " +
-      "unless allow_duplicates is true. Debt repayments must go through record_debt_payment instead.",
-    inputSchema: obj(
-      {
-        mode: MODE,
-        transactions: {
-          type: "array",
-          minItems: 1,
-          maxItems: 50,
-          items: obj(
-            {
-              date: { ...DATE, description: "YYYY-MM-DD, default today" },
-              merchant: { type: "string", description: "Who was paid or who paid" },
-              amount: AMOUNT,
-              type: { type: "string", enum: ["income", "expense"] },
-              category: { type: "string", description: "individual: " + TRANSACTION_CATEGORIES.individual.join(", ") + ". business: " + TRANSACTION_CATEGORIES.business.join(", ") },
-              note: { type: "string" },
-            },
-            ["merchant", "amount", "type", "category"]
-          ),
-        },
-        allow_duplicates: { type: "boolean" },
-      },
-      ["mode", "transactions"]
-    ),
-    write: true,
-    async run(a) {
-      const mode = modeOf(a);
-      const ctx = await load(mode);
-      const items = a.transactions;
-      if (!Array.isArray(items) || items.length === 0) throw new ToolInputError(`"transactions" must be a non-empty list.`);
-      const allowed = TRANSACTION_CATEGORIES[mode];
-      // Validate everything first so a bad row doesn't leave half the list saved.
-      const rows = items.map((raw: Args, i) => {
-        const t = {
-          date: date(raw, "date", ctx.today),
-          name: str(raw, "merchant")!,
-          amount: money(raw, "amount")!,
-          type: oneOf(raw, "type", ["income", "expense"] as const),
-          category: str(raw, "category")!,
-          description: str(raw, "note", false),
-        };
-        if (!allowed.includes(t.category)) throw new ToolInputError(`Row ${i + 1}: category "${t.category}" isn't one of: ${allowed.join(", ")}.`);
-        return t;
-      });
-      const seen = new Set(ctx.transactions.map((t) => `${t.date}|${cents(t.amount)}|${t.name.toLowerCase()}`));
-      const added: unknown[] = [];
-      const skipped: unknown[] = [];
-      for (const t of rows) {
-        const key = `${t.date}|${cents(t.amount)}|${t.name.toLowerCase()}`;
-        if (seen.has(key) && !a.allow_duplicates) {
-          skipped.push({ ...t, reason: "possible duplicate of an existing transaction" });
-          continue;
-        }
-        seen.add(key);
-        added.push(txOut(await insertTransaction(ctx.profile.id, mode, t, "agent")));
-      }
-      const addedTotal = (added as { amount: number }[]).reduce((t, x) => t + cents(x.amount), 0) / 100;
-      return {
-        summary: `Added ${added.length} transaction${added.length === 1 ? "" : "s"} (${rm(addedTotal)} in total)${skipped.length ? `, skipped ${skipped.length} possible duplicate${skipped.length === 1 ? "" : "s"}` : ""}.`,
-        data: { added, skipped, addedTotal },
-      };
-    },
-  },
-  {
-    name: "update_transaction",
-    description: "Fix a transaction: re-categorise it, rename the merchant, or change its note, date or amount. Use ids from list_transactions or get_snapshot.",
-    inputSchema: obj(
-      { mode: MODE, id: { type: "string" }, category: { type: "string" }, merchant: { type: "string" }, note: { type: "string" }, date: DATE, amount: AMOUNT },
-      ["mode", "id"]
-    ),
-    write: true,
-    async run(a) {
-      const mode = modeOf(a);
-      const ctx = await load(mode);
-      const t = ctx.transactions.find((x) => x.id === str(a, "id"));
-      if (!t) throw new ToolInputError("No transaction with that id on this profile.");
-      if (t.category === "Debt Repayment" || t.category === "Interest & Fees" || !t.cashEffect) {
-        throw new ToolInputError("This transaction belongs to a debt record and can't be edited here.");
-      }
-      const u: Partial<Transaction> = {};
-      if (a.category !== undefined) {
-        const c = str(a, "category")!;
-        if (!TRANSACTION_CATEGORIES[mode].includes(c)) throw new ToolInputError(`Category must be one of: ${TRANSACTION_CATEGORIES[mode].join(", ")}.`);
-        u.category = c;
-      }
-      if (a.merchant !== undefined) u.name = str(a, "merchant");
-      if (a.note !== undefined) u.description = (a.note as string) ?? "";
-      if (a.date !== undefined) u.date = date(a, "date");
-      if (a.amount !== undefined) u.amount = money(a, "amount");
-      if (Object.keys(u).length === 0) throw new ToolInputError("Nothing to change.");
-      await updateTransactionRow(ctx.profile.id, t.id, u);
-      return { summary: `Updated ${t.name} (${t.date}).`, data: { before: txOut(t), changes: u } };
-    },
-  },
-  {
-    name: "set_budgets",
-    description:
-      "Create or replace monthly budget lines (one per category). Mark rent, utilities, food and similar needs as essential: " +
-      "what's left of essential budgets is held back in safe-to-spend. Use this to put a financial plan into effect, after the user agrees to it.",
-    inputSchema: obj(
-      {
-        mode: MODE,
-        month: { type: "string", description: "YYYY-MM, default this month" },
-        budgets: {
-          type: "array",
-          minItems: 1,
-          items: obj({ category: { type: "string" }, limit: { type: "number", description: "RM, 0 or more" }, essential: { type: "boolean" } }, ["category", "limit", "essential"]),
-        },
-      },
-      ["mode", "budgets"]
-    ),
-    write: true,
-    async run(a) {
-      const mode = modeOf(a);
-      const ctx = await load(mode);
-      const month = (a.month as string | undefined) ?? ctx.today.slice(0, 7);
-      if (!/^\d{4}-\d{2}$/.test(month)) throw new ToolInputError(`"month" must be YYYY-MM.`);
-      const allowed = spendingCategories(mode);
-      const lines = (a.budgets as Args[]).map((b) => {
-        const category = str(b, "category")!;
-        if (!allowed.includes(category)) throw new ToolInputError(`Budget category "${category}" isn't one of: ${allowed.join(", ")}.`);
-        const limit = Number(b.limit);
-        if (!Number.isFinite(limit) || limit < 0) throw new ToolInputError(`Limit for ${category} must be RM0 or more.`);
-        return { category, limit: cents(limit) / 100, essential: Boolean(b.essential) };
-      });
-      for (const l of lines) await upsertBudget(ctx.profile.id, `${month}-01`, l, "agent");
-      const total = lines.reduce((s, l) => s + cents(l.limit), 0) / 100;
-      return { summary: `Set ${lines.length} budget lines for ${month}, ${rm(total)} in total.`, data: { month, lines, total } };
-    },
-  },
-  {
-    name: "add_bill",
-    description: "Add a bill the user has to pay (rent, utilities, internet, phone, a supplier bill). For money owed in instalments (BNPL, loans, cards) use add_debt.",
-    inputSchema: obj(
-      {
-        mode: MODE,
-        name: { type: "string" },
-        amount: AMOUNT,
-        due_date: DATE,
-        category: { type: "string", description: "individual: " + BILL_CATEGORIES.individual.join(", ") + ". business: " + BILL_CATEGORIES.business.join(", ") },
-        recurring_monthly: { type: "boolean" },
-      },
-      ["mode", "name", "amount", "due_date", "category"]
-    ),
-    write: true,
-    async run(a) {
-      const mode = modeOf(a);
-      const ctx = await load(mode);
-      const category = oneOf(a, "category", BILL_CATEGORIES[mode]);
-      const bill = await insertCommitment(ctx.profile.id, mode, {
-        name: str(a, "name")!, amount: money(a, "amount")!, dueDate: date(a, "due_date"), category, status: "upcoming", recurring: Boolean(a.recurring_monthly),
-      });
-      return { summary: `Added bill ${bill.name}, ${rm(bill.amount)} due ${bill.dueDate}.`, data: { id: bill.id, name: bill.name, amount: bill.amount, dueDate: bill.dueDate, category } };
-    },
-  },
-  {
-    name: "mark_bill_paid",
-    description: "Record that the user paid a bill (records the expense once; a second call does nothing). Bill ids come from list_payments_due.",
-    inputSchema: obj({ mode: MODE, bill_id: { type: "string" }, paid_date: { ...DATE, description: "YYYY-MM-DD, default today" } }, ["mode", "bill_id"]),
-    write: true,
-    async run(a) {
-      const mode = modeOf(a);
-      const ctx = await load(mode);
-      const bill = ctx.commitments.find((c) => c.id === str(a, "bill_id"));
-      if (!bill) throw new ToolInputError("No bill with that id on this profile. Call list_payments_due.");
-      const done = await markCommitmentPaidOnce(ctx.profile.id, mode, bill, date(a, "paid_date", ctx.today));
-      return { summary: done ? `Recorded payment of ${rm(bill.amount)} to ${bill.name}.` : `${bill.name} was already paid; nothing recorded.`, data: { recorded: done } };
-    },
-  },
-  {
     name: "add_debt",
     description:
-      "Add money the user owes, with a repayment schedule built from the terms. Every term must come from the user: " +
-      "never invent the balance, repayment amount, frequency, due date or interest rate. Ask for anything missing. " +
-      "If the debt paid for a purchase (BNPL, supplier invoice), set purchase_category so it counts as spending once.",
+      "Add a PayLater (BNPL) plan the user took, with a repayment schedule built from its terms. Every term must come from the user or their screenshot: " +
+      "never invent the total, instalment amount, frequency, first due date or interest rate. Ask for anything missing.",
     inputSchema: obj(
       {
-        mode: MODE,
-        name: { type: "string", description: "Creditor / provider, e.g. Shopee PayLater" },
-        debt_type: { type: "string", description: "individual: " + Object.keys(PERSONAL_DEBT_TYPES).join(", ") + ". business: " + Object.keys(BUSINESS_DEBT_TYPES).join(", ") },
-        original_amount: AMOUNT,
+        provider: { type: "string", description: "e.g. Shopee PayLater, TikTok PayLater, Grab PayLater, Atome" },
+        bought: { type: "string", description: "What was bought, e.g. Wireless earbuds" },
+        original_amount: { ...AMOUNT, description: "Total the user agreed to pay back" },
         outstanding_balance: { ...AMOUNT, description: "Still owed now (defaults to original_amount)" },
-        frequency: { type: "string", enum: ["one_time", "weekly", "biweekly", "monthly", "yearly"] },
+        frequency: { type: "string", enum: ["one_time", "weekly", "biweekly", "monthly"] },
         repayment_amount: { ...AMOUNT, description: "Each instalment; required unless one_time" },
         first_due_date: DATE,
         interest_rate: { type: "number", description: "% per year, only if the user stated it" },
-        reference_no: { type: "string" },
-        notes: { type: "string" },
-        purchase_category: { type: "string", description: "Spending category of what was bought on credit, if any" },
+        order_no: { type: "string" },
         purchase_date: DATE,
       },
-      ["mode", "name", "debt_type", "original_amount", "frequency", "first_due_date"]
+      ["provider", "original_amount", "frequency", "first_due_date"]
     ),
     write: true,
     async run(a) {
-      const mode = modeOf(a);
-      const ctx = await load(mode);
-      const types = Object.keys(mode === "individual" ? PERSONAL_DEBT_TYPES : BUSINESS_DEBT_TYPES) as DebtType[];
-      const debtType = oneOf(a, "debt_type", types);
-      const frequency = oneOf(a, "frequency", ["one_time", "weekly", "biweekly", "monthly", "yearly"] as const);
+      const ctx = await load();
+      const frequency = oneOf(a, "frequency", ["one_time", "weekly", "biweekly", "monthly"] as const);
       const original = money(a, "original_amount")!;
       const outstanding = money(a, "outstanding_balance", false) ?? original;
       if (outstanding > original) throw new ToolInputError("Outstanding balance can't be more than the original amount.");
       const repayment = frequency === "one_time" ? undefined : money(a, "repayment_amount");
       const schedule = generateSchedule({ amount: outstanding, frequency, firstDueDate: date(a, "first_due_date"), instalmentAmount: repayment });
-      let purchase;
-      if (a.purchase_category !== undefined) {
-        const category = str(a, "purchase_category")!;
-        if (!spendingCategories(mode).includes(category)) throw new ToolInputError(`purchase_category must be one of: ${spendingCategories(mode).join(", ")}.`);
-        purchase = { date: date(a, "purchase_date", ctx.today), category };
-      }
       const rate = a.interest_rate === undefined ? undefined : Number(a.interest_rate);
       if (rate !== undefined && (!Number.isFinite(rate) || rate < 0)) throw new ToolInputError("interest_rate must be a % of 0 or more.");
+      const provider = str(a, "provider")!;
       await createDebt(ctx.profile.id, {
-        name: str(a, "name")!, debtType, originalAmount: original, outstandingBalance: outstanding, repaymentAmount: repayment, frequency,
-        interestRate: rate, referenceNo: str(a, "reference_no", false), notes: str(a, "notes", false), purchase,
+        name: provider, debtType: "bnpl", originalAmount: original, outstandingBalance: outstanding, repaymentAmount: repayment, frequency,
+        interestRate: rate, startDate: a.purchase_date ? date(a, "purchase_date") : undefined,
+        referenceNo: str(a, "order_no", false), notes: str(a, "bought", false),
       }, schedule);
       return {
-        summary: `Added ${a.name}: ${rm(outstanding)} owed, ${schedule.length} instalment${schedule.length === 1 ? "" : "s"} from ${schedule[0].due_date}.`,
+        summary: `Added ${provider}: ${rm(outstanding)} owed, ${schedule.length} instalment${schedule.length === 1 ? "" : "s"} from ${schedule[0].due_date}.`,
         data: { schedule },
       };
     },
@@ -627,15 +307,15 @@ export const TOOLS: ToolDef[] = [
   {
     name: "record_debt_payment",
     description:
-      "Record a repayment the user already made towards a debt. It's applied to the next unpaid instalment; a partial payment is fine. " +
-      "Paying more than that instalment is refused. Pass interest only if the user says part of the payment was interest or fees. " +
-      "The same payment (debt, amount, date) is only ever recorded once.",
-    inputSchema: obj({ mode: MODE, debt_id: { type: "string" }, amount: AMOUNT, paid_date: { ...DATE, description: "default today" }, interest: { type: "number", description: "RM of the amount that was interest/fees, default 0" } }, ["mode", "debt_id", "amount"]),
+      "Record a PayLater instalment the user already paid. It's applied to the plan's next unpaid instalment; a partial payment is fine. " +
+      "Paying more than that instalment is refused. Pass interest only if the user says part of the payment was interest or late fees. " +
+      "The same payment (plan, amount, date) is only ever recorded once.",
+    inputSchema: obj({ debt_id: { type: "string" }, amount: AMOUNT, paid_date: { ...DATE, description: "default today" }, interest: { type: "number", description: "RM of the amount that was interest/late fees, default 0" } }, ["debt_id", "amount"]),
     write: true,
     async run(a) {
-      const ctx = await load(modeOf(a));
+      const ctx = await load();
       const debt = ctx.debts.find((d) => d.id === str(a, "debt_id"));
-      if (!debt) throw new ToolInputError("No debt with that id on this profile. Call list_debts.");
+      if (!debt) throw new ToolInputError("No PayLater plan with that id. Call list_debts.");
       const inst = debt.nextInstalment;
       if (!inst) throw new ToolInputError(`${debt.name} has no unpaid instalment.`);
       const amount = money(a, "amount")!;
@@ -656,12 +336,12 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "add_expected_income",
-    description: "Add income the user expects (allowance, salary, PTPTN, sales payout). Set confirmed only if the user says it's certain. Safe-to-spend runs to the next expected income.",
-    inputSchema: obj({ mode: MODE, source: { type: "string", enum: ["allowance", "salary", "PTPTN", "sales", "other"] }, amount: AMOUNT, expected_date: DATE, confirmed: { type: "boolean" } }, ["mode", "source", "amount", "expected_date"]),
+    description: "Add income the user expects (allowance, salary, PTPTN). Set confirmed only if the user says it's certain. Affordability and the month-end projection use it.",
+    inputSchema: obj({ source: { type: "string", enum: ["allowance", "salary", "PTPTN", "other"] }, amount: AMOUNT, expected_date: DATE, confirmed: { type: "boolean" } }, ["source", "amount", "expected_date"]),
     write: true,
     async run(a) {
-      const ctx = await load(modeOf(a));
-      const source = oneOf<IncomeSource>(a, "source", ["allowance", "salary", "PTPTN", "sales", "other"]);
+      const ctx = await load();
+      const source = oneOf<IncomeSource>(a, "source", ["allowance", "salary", "PTPTN", "other"]);
       const amount = money(a, "amount")!;
       const expectedDate = date(a, "expected_date");
       const id = await insertExpectedIncome(ctx.profile.id, { source, expectedAmount: amount, expectedDate, confirmed: Boolean(a.confirmed) });
@@ -687,11 +367,8 @@ export async function callTool(name: string, args: Args): Promise<{ ok: boolean;
     text = e instanceof ToolInputError ? summary : `Error: ${summary}`;
   }
   // Best effort: a failed log must not fail the tool call.
-  const mode = args?.mode === "business" || args?.mode === "individual" ? args.mode : undefined;
-  if (mode) {
-    try {
-      await logAgentActivity(await profileIdFor(mode), { tool: name, input: args, ok, summary, isWrite: tool.write });
-    } catch {}
-  }
+  try {
+    await logAgentActivity(await profileIdFor("individual"), { tool: name, input: args, ok, summary, isWrite: tool.write });
+  } catch {}
   return { ok, text };
 }

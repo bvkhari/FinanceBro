@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   if (badAttachments) return Response.json({ error: badAttachments }, { status: 400 });
   const attachments = body.attachments ?? [];
   // A receipt sent on its own still needs a message for the agent.
-  const message = body.message?.trim() || (attachments.length ? "Here's my receipt. Please record it." : "");
+  const message = body.message?.trim() || (attachments.length ? "Here's my PayLater screenshot. Please record it." : "");
   const mode = body.mode === "business" ? "business" : "individual";
   if (!message) return Response.json({ error: "Empty message" }, { status: 400 });
   if (message.length > 8000) return Response.json({ error: "Message too long" }, { status: 400 });

@@ -66,9 +66,10 @@ export function findEngine(): string | null {
 
 export const isValidSessionId = (id: string) => SESSION_ID.test(id);
 
+// FinanceBro has one personal profile, so both modes get the same note. `mode` stays in the protocol for older clients.
 const PROFILE_NOTE: Record<AgentMode, string> = {
-  individual: "The user is in the app's Personal profile: use mode \"individual\" in every tool call unless they ask about the business.",
-  business: "The user is in the app's Business profile: use mode \"business\" in every tool call unless they ask about their personal account.",
+  individual: "FinanceBro tracks the user's PayLater (BNPL) plans on one personal profile. The tools need no profile or mode argument.",
+  business: "FinanceBro tracks the user's PayLater (BNPL) plans on one personal profile. The tools need no profile or mode argument.",
 };
 
 const CHAT_STYLE = `You are replying inside the FinanceBro AI chat in the app. Write plain text for a phone screen: short paragraphs, "-" bullets, no markdown headings, tables or bold. You have no tools other than the financebro ones.`;
